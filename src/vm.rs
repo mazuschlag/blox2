@@ -18,11 +18,11 @@ impl Vm {
         }
     }
 
-    pub fn repl(&mut self) -> RunResult {
+    pub fn repl(&mut self) -> Interpret {
         println!("=== Welcome to blox v2.0");
         println!("=== Enter 'q' or 'Q' to quit");
         print!("> ");
-        io::stdout().flush().unwrap();
+        io::stdout().flush().expect("Error flushing stdout.");
         for line in io::stdin().lock().lines() {
             let input = line.unwrap_or_else(|e| {
                 eprintln!("Error reading input {e}");
@@ -31,45 +31,45 @@ impl Vm {
 
             if input.is_empty() {
                 print!("> ");
-                io::stdout().flush().unwrap();
+                io::stdout().flush().expect("Error flushing stdout.");
                 continue;
             }
 
             if input.to_lowercase().trim() == "q" {
                 println!("=== Goodbye!");
-                return RunResult::Ok;
+                return Interpret::Ok;
             }
 
             match self.interpret(input) {
-                RunResult::CompileError(e) => eprintln!("Compile error: {e}"),
-                RunResult::RuntimeError(e) => eprintln!("Compile error: {e}"),
-                RunResult::Ok => (),
+                Interpret::CompileError(e) => eprintln!("Compile error: {e}"),
+                Interpret::RuntimeError(e) => eprintln!("Compile error: {e}"),
+                Interpret::Ok => (),
             }
 
             self.ip = 0;
             print!("> ");
-            io::stdout().flush().unwrap();
+            io::stdout().flush().expect("Error flushing stdout.");
         }
 
-        RunResult::Ok
+        Interpret::Ok
     }
 
-    pub fn run_file(&mut self, path: &str) -> RunResult {
+    pub fn run_file(&mut self, path: &str) -> Interpret {
         match fs::read_to_string(path) {
             Ok(source) => self.interpret(source),
-            Err(e) => RunResult::CompileError(format!("Failed to open file at {path}: {e}")),
+            Err(e) => Interpret::CompileError(format!("Failed to open file at {path}: {e}")),
         }
     }
 
-    fn interpret(&mut self, source: String) -> RunResult {
+    fn interpret(&mut self, source: String) -> Interpret {
         let compiler = Compiler::new(source);
         match compiler.compile() {
             Ok(chunk) => self.run(chunk),
-            Err(e) => return RunResult::CompileError(e),
+            Err(e) => return Interpret::CompileError(e),
         }
     }
 
-    fn run(&mut self, chunk: Chunk) -> RunResult {
+    fn run(&mut self, chunk: Chunk) -> Interpret {
         loop {
             let ip = self.ip;
             let op = chunk.read_op(ip);
@@ -89,37 +89,42 @@ impl Vm {
                 OpCode::Add => {
                     let add = |left, right| Value::Number(left + right);
                     if let Err(e) = self.binary_op(add) {
-                        return RunResult::RuntimeError(e);
+                        return Interpret::RuntimeError(e);
                     }
                 }
                 OpCode::Subtract => {
                     let sub = |left, right| Value::Number(left - right);
                     if let Err(e) = self.binary_op(sub) {
-                        return RunResult::RuntimeError(e);
+                        return Interpret::RuntimeError(e);
                     }
                 }
                 OpCode::Multiply => {
                     let mult = |left, right| Value::Number(left * right);
                     if let Err(e) = self.binary_op(mult) {
-                        return RunResult::RuntimeError(e);
+                        return Interpret::RuntimeError(e);
                     }
                 }
                 OpCode::Divide => {
                     let div = |left, right| Value::Number(left / right);
                     if let Err(e) = self.binary_op(div) {
-                        return RunResult::RuntimeError(e);
+                        return Interpret::RuntimeError(e);
                     }
                 }
                 OpCode::Negate => {
                     let value = self.stack_pop();
                     match value {
                         Value::Number(n) => self.stack.push(Value::Number(-n)),
+                        _ => {
+                            return Interpret::RuntimeError(String::from(
+                                "Cannot negate a non-number.",
+                            ))
+                        }
                     }
                 }
                 OpCode::Return => {
                     let value = self.stack_pop();
                     println!("{}", value);
-                    return RunResult::Ok;
+                    return Interpret::Ok;
                 }
             }
         }
@@ -134,6 +139,7 @@ impl Vm {
                 self.stack.push(op(left, right));
                 Ok(())
             }
+            _ => Err(String::from("Cannot perform operation on two non-numbers.")),
         }
     }
 
@@ -157,7 +163,7 @@ impl Vm {
     }
 }
 
-pub enum RunResult {
+pub enum Interpret {
     Ok,
     CompileError(String),
     RuntimeError(String),

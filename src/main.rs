@@ -5,15 +5,11 @@ mod token;
 mod value;
 mod vm;
 
-use std::{env, process};
+use std::{env, process::ExitCode};
 
 use vm::*;
 
-const SUCCESS: i32 = 0;
-const RUNTIME_ERROR: i32 = 1;
-const COMPILE_ERROR: i32 = 2;
-
-fn main() {
+fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
 
     let mut vm = Vm::new();
@@ -24,14 +20,14 @@ fn main() {
     };
 
     match result {
-        RunResult::RuntimeError(e) => {
+        Interpret::RuntimeError(e) => {
             eprintln!("Runtime error: {e}");
-            process::exit(RUNTIME_ERROR);
+            ExitCode::FAILURE
         }
-        RunResult::CompileError(e) => {
+        Interpret::CompileError(e) => {
             eprintln!("Compile error: {e}");
-            process::exit(COMPILE_ERROR);
+            ExitCode::FAILURE
         }
-        RunResult::Ok => process::exit(SUCCESS),
+        Interpret::Ok => ExitCode::SUCCESS,
     }
 }
