@@ -40,11 +40,7 @@ impl Vm {
                 return Interpret::Ok;
             }
 
-            match self.interpret(input) {
-                Interpret::CompileError(e) => eprintln!("Compile error: {e}"),
-                _ => (),
-            }
-
+            self.interpret(input);
             self.reset_stack();
             print!("> ");
             io::stdout().flush().expect("Error flushing stdout.");
@@ -56,7 +52,10 @@ impl Vm {
     pub fn run_file(&mut self, path: &str) -> Interpret {
         match fs::read_to_string(path) {
             Ok(source) => self.interpret(source),
-            Err(e) => Interpret::CompileError(format!("Failed to open file at {path}: {e}")),
+            Err(e) => {
+                eprintln!("Failed to open file at {path}: {e}");
+                Interpret::RuntimeError
+            }
         }
     }
 
@@ -64,7 +63,7 @@ impl Vm {
         let compiler = Compiler::new(source);
         match compiler.compile() {
             Ok(chunk) => self.run(chunk),
-            Err(e) => return Interpret::CompileError(e),
+            Err(()) => return Interpret::CompileError,
         }
     }
 
@@ -85,6 +84,9 @@ impl Vm {
                     let constant = chunk.read_constant(index);
                     self.stack.push(*constant);
                 }
+                OpCode::Nil => self.stack.push(Value::Nil),
+                OpCode::True => self.stack.push(Value::Bool(true)),
+                OpCode::False => self.stack.push(Value::Bool(false)),
                 OpCode::Add => {
                     let add = |left, right| Value::Number(left + right);
                     if let Err(e) = self.binary_op(add) {
@@ -185,6 +187,6 @@ impl Vm {
 
 pub enum Interpret {
     Ok,
-    CompileError(String),
+    CompileError,
     RuntimeError,
 }

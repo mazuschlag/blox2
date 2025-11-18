@@ -18,7 +18,7 @@ impl Compiler {
         }
     }
 
-    pub fn compile(mut self) -> Result<Chunk, String> {
+    pub fn compile(mut self) -> Result<Chunk, ()> {
         self.parser.reset();
 
         self.advance();
@@ -27,7 +27,7 @@ impl Compiler {
         self.end();
 
         if self.parser.had_error {
-            return Err(String::from("Error parsing"));
+            return Err(());
         }
 
         if env::var("DEBUG_TRACE_EXECUTION").is_ok_and(|var| var == "1") {
@@ -72,6 +72,15 @@ impl Compiler {
             TokenType::Star => self.emit_byte(OpCode::Multiply),
             TokenType::Slash => self.emit_byte(OpCode::Divide),
             _ => panic!("Unreachable code: unknown binary operation {op_type}"),
+        }
+    }
+
+    fn literal(&mut self) {
+        match self.parser.previous.typ {
+            TokenType::False => self.emit_byte(OpCode::False),
+            TokenType::Nil => self.emit_byte(OpCode::Nil),
+            TokenType::True => self.emit_byte(OpCode::True),
+            _ => panic!("Unreachable code: unknown literal {}", self.parser.previous.typ),
         }
     }
 
@@ -348,7 +357,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::False => ParseRule {
-                prefix: None,
+                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.literal())),
                 infix: None,
                 precedence: Precedence::None,
             },
@@ -368,7 +377,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::Nil => ParseRule {
-                prefix: None,
+                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.literal())),
                 infix: None,
                 precedence: Precedence::None,
             },
@@ -398,7 +407,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::True => ParseRule {
-                prefix: None,
+                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.literal())),
                 infix: None,
                 precedence: Precedence::None,
             },

@@ -85,6 +85,9 @@ impl Chunk {
 #[derive(Debug, Clone, Copy)]
 pub enum OpCode {
     Constant(usize),
+    Nil,
+    True,
+    False,
     Add,
     Subtract,
     Multiply,
@@ -99,6 +102,9 @@ impl fmt::Display for OpCode {
             Self::Constant(index) => {
                 write!(f, "CONSTANT {number:>width$}", number = index, width = 16)
             }
+            Self::Nil => write!(f, "NIL"),
+            Self::True => write!(f, "TRUE"),
+            Self::False => write!(f, "FALSE"),
             Self::Add => write!(f, "ADD"),
             Self::Subtract => write!(f, "SUBTRACT"),
             Self::Multiply => write!(f, "MULTIPLY"),
