@@ -71,7 +71,7 @@ impl Chunk {
         };
     }
 
-    fn get_line(&self, offset: usize) -> usize {
+    pub fn get_line(&self, offset: usize) -> usize {
         let mut line_counter = self.lines[0];
         let mut current_index = 1;
         while line_counter < offset && current_index < self.lines.len() {

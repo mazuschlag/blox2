@@ -42,11 +42,10 @@ impl Vm {
 
             match self.interpret(input) {
                 Interpret::CompileError(e) => eprintln!("Compile error: {e}"),
-                Interpret::RuntimeError(e) => eprintln!("Compile error: {e}"),
-                Interpret::Ok => (),
+                _ => (),
             }
 
-            self.ip = 0;
+            self.reset_stack();
             print!("> ");
             io::stdout().flush().expect("Error flushing stdout.");
         }
@@ -72,16 +71,16 @@ impl Vm {
     fn run(&mut self, chunk: Chunk) -> Interpret {
         loop {
             let ip = self.ip;
-            let op = chunk.read_op(ip);
+            let op = chunk.read_op(ip).to_owned();
 
             if env::var("DEBUG_TRACE_EXECUTION").is_ok_and(|var| var == "1") {
-                chunk.disassemble_instruction(ip, op);
+                chunk.disassemble_instruction(ip, &op);
                 self.stack_trace();
             }
 
             self.ip += 1;
 
-            match *op {
+            match op {
                 OpCode::Constant(index) => {
                     let constant = chunk.read_constant(index);
                     self.stack.push(*constant);
@@ -89,36 +88,34 @@ impl Vm {
                 OpCode::Add => {
                     let add = |left, right| Value::Number(left + right);
                     if let Err(e) = self.binary_op(add) {
-                        return Interpret::RuntimeError(e);
+                        return self.runtime_error(&e, &chunk);
                     }
                 }
                 OpCode::Subtract => {
                     let sub = |left, right| Value::Number(left - right);
                     if let Err(e) = self.binary_op(sub) {
-                        return Interpret::RuntimeError(e);
+                        return self.runtime_error(&e, &chunk);
                     }
                 }
                 OpCode::Multiply => {
                     let mult = |left, right| Value::Number(left * right);
                     if let Err(e) = self.binary_op(mult) {
-                        return Interpret::RuntimeError(e);
+                        return self.runtime_error(&e, &chunk);
                     }
                 }
                 OpCode::Divide => {
                     let div = |left, right| Value::Number(left / right);
                     if let Err(e) = self.binary_op(div) {
-                        return Interpret::RuntimeError(e);
+                        return self.runtime_error(&e, &chunk);
                     }
                 }
                 OpCode::Negate => {
-                    let value = self.stack_pop();
-                    match value {
-                        Value::Number(n) => self.stack.push(Value::Number(-n)),
-                        _ => {
-                            return Interpret::RuntimeError(String::from(
-                                "Cannot negate a non-number.",
-                            ))
-                        }
+                    if !self.peek(0).is_number() {
+                       return self.runtime_error("Cannot negate a non-number.", &chunk);
+                    }
+        
+                    if let Value::Number(n) = self.stack_pop() {
+                        self.stack.push(Value::Number(-n));
                     }
                 }
                 OpCode::Return => {
@@ -134,19 +131,26 @@ impl Vm {
     where
         F: FnMut(f64, f64) -> Value,
     {
-        match (self.stack_pop(), self.stack_pop()) {
-            (Value::Number(right), Value::Number(left)) => {
-                self.stack.push(op(left, right));
-                Ok(())
-            }
-            _ => Err(String::from("Cannot perform operation on two non-numbers.")),
+        if !self.peek(0).is_number() || !self.peek(1).is_number() {
+            return Err(String::from("Cannot perform operation on two non-numbers."));
         }
+
+        if let (Value::Number(right), Value::Number(left)) = (self.stack_pop(), self.stack_pop()) {
+            self.stack.push(op(left, right));
+        }
+
+        Ok(())
     }
 
     fn stack_pop(&mut self) -> Value {
         self.stack
             .pop()
             .expect("Attempting to pop from stack when stack is empty")
+    }
+
+    fn peek(&self, distance: usize) -> &Value {
+        let top = self.stack_top() - 1;
+        self.stack.get(top - distance).expect("Failure to peek stack top")
     }
 
     fn stack_trace(&self) {
@@ -161,10 +165,24 @@ impl Vm {
     fn stack_top(&self) -> usize {
         self.stack.len()
     }
+
+    fn reset_stack(&mut self) {
+        self.ip = 0;
+        self.stack.clear();
+    }
+
+    fn runtime_error(&mut self, message: &str, chunk: &Chunk) -> Interpret {
+        eprintln!("{message}");
+        let ip = self.ip - 1;
+        let line = chunk.get_line(ip);
+        eprintln!("[line {line}] in script.");
+        self.reset_stack();
+        Interpret::RuntimeError
+    }
 }
 
 pub enum Interpret {
     Ok,
     CompileError(String),
-    RuntimeError(String),
+    RuntimeError,
 }

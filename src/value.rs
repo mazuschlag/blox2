@@ -16,3 +16,12 @@ impl fmt::Display for Value {
         }
     }
 }
+
+impl Value {
+    pub fn is_number(&self) -> bool {
+        match self {
+            Self::Number(_) => true,
+            _ => false,
+        }
+    }
+}

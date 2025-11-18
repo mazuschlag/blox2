@@ -20,8 +20,7 @@ fn main() -> ExitCode {
     };
 
     match result {
-        Interpret::RuntimeError(e) => {
-            eprintln!("Runtime error: {e}");
+        Interpret::RuntimeError => {
             ExitCode::FAILURE
         }
         Interpret::CompileError(e) => {
