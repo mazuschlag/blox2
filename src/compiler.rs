@@ -142,6 +142,26 @@ impl Compiler {
         self.emit_byte(first);
         self.emit_byte(second);
     }
+
+    fn method_pointer(method: Method) -> CompilerMethod {
+        match method {
+            Method::Grouping => Box::new(|compiler: &mut Self| compiler.grouping()),
+            Method::Unary => Box::new(|compiler: &mut Self| compiler.unary()),
+            Method::Binary => Box::new(|compiler: &mut Self| compiler.binary()),
+            Method::Number => Box::new(|compiler: &mut Self| compiler.number()),
+            Method::Literal => Box::new(|compiler: &mut Self| compiler.literal()),
+        }
+    }
+}
+
+type CompilerMethod = Box<dyn Fn(&mut Compiler)>;
+
+enum Method {
+    Grouping,
+    Unary,
+    Binary,
+    Number,
+    Literal,
 }
 
 #[derive(Debug, Clone)]
@@ -226,8 +246,8 @@ impl Precedence {
 }
 
 struct ParseRule {
-    prefix: Option<Box<dyn Fn(&mut Compiler)>>,
-    infix: Option<Box<dyn Fn(&mut Compiler)>>,
+    prefix: Option<CompilerMethod>,
+    infix: Option<CompilerMethod>,
     precedence: Precedence,
 }
 
@@ -239,7 +259,7 @@ impl GetRule for TokenType {
     fn get_rule(&self) -> ParseRule {
         match self {
             Self::LeftParen => ParseRule {
-                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.grouping())),
+                prefix: Some(Compiler::method_pointer(Method::Grouping)),
                 infix: None,
                 precedence: Precedence::None,
             },
@@ -269,13 +289,13 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::Minus => ParseRule {
-                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.unary())),
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                prefix: Some(Compiler::method_pointer(Method::Unary)),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Term,
             },
             Self::Plus => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Term,
             },
             Self::Colon => ParseRule {
@@ -290,22 +310,22 @@ impl GetRule for TokenType {
             },
             Self::Slash => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Factor,
             },
             Self::Star => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Factor,
             },
             Self::Bang => ParseRule {
-                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.unary())),
+                prefix: Some(Compiler::method_pointer(Method::Unary)),
                 infix: None,
                 precedence: Precedence::None,
             },
             Self::BangEqual => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Equality,
             },
             Self::Equal => ParseRule {
@@ -315,27 +335,27 @@ impl GetRule for TokenType {
             },
             Self::EqualEqual => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Equality,
             },
             Self::Greater => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Comparison,
             },
             Self::GreaterEqual => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Comparison,
             },
             Self::Less => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Comparison,
             },
             Self::LessEqual => ParseRule {
                 prefix: None,
-                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                infix: Some(Compiler::method_pointer(Method::Binary)),
                 precedence: Precedence::Comparison,
             },
             Self::Identifier => ParseRule {
@@ -349,7 +369,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::Number => ParseRule {
-                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.number())),
+                prefix: Some(Compiler::method_pointer(Method::Number)),
                 infix: None,
                 precedence: Precedence::None,
             },
@@ -369,7 +389,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::False => ParseRule {
-                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.literal())),
+                prefix: Some(Compiler::method_pointer(Method::Literal)),
                 infix: None,
                 precedence: Precedence::None,
             },
@@ -389,7 +409,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::Nil => ParseRule {
-                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.literal())),
+                prefix: Some(Compiler::method_pointer(Method::Literal)),
                 infix: None,
                 precedence: Precedence::None,
             },
@@ -419,7 +439,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::True => ParseRule {
-                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.literal())),
+                prefix: Some(Compiler::method_pointer(Method::Literal)),
                 infix: None,
                 precedence: Precedence::None,
             },
