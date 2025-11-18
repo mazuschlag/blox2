@@ -59,7 +59,7 @@ impl Compiler {
     }
 
     fn end(&mut self) {
-        self.emit_byte(OpCode::Return);
+        self.emit_byte(Op::Return);
     }
 
     fn binary(&mut self) {
@@ -67,19 +67,25 @@ impl Compiler {
         let rule = op_type.get_rule();
         self.parse_precedence(rule.precedence.next());
         match op_type {
-            TokenType::Plus => self.emit_byte(OpCode::Add),
-            TokenType::Minus => self.emit_byte(OpCode::Subtract),
-            TokenType::Star => self.emit_byte(OpCode::Multiply),
-            TokenType::Slash => self.emit_byte(OpCode::Divide),
+            TokenType::Plus => self.emit_byte(Op::Add),
+            TokenType::Minus => self.emit_byte(Op::Subtract),
+            TokenType::Star => self.emit_byte(Op::Multiply),
+            TokenType::Slash => self.emit_byte(Op::Divide),
+            TokenType::BangEqual => self.emit_bytes(Op::Equal, Op::Not),
+            TokenType::EqualEqual => self.emit_byte(Op::Equal),
+            TokenType::Greater => self.emit_byte(Op::Greater),
+            TokenType::GreaterEqual => self.emit_bytes(Op::Less, Op::Not),
+            TokenType::Less => self.emit_byte(Op::Less),
+            TokenType::LessEqual => self.emit_bytes(Op::Greater, Op::Not),
             _ => panic!("Unreachable code: unknown binary operation {op_type}"),
         }
     }
 
     fn literal(&mut self) {
         match self.parser.previous.typ {
-            TokenType::False => self.emit_byte(OpCode::False),
-            TokenType::Nil => self.emit_byte(OpCode::Nil),
-            TokenType::True => self.emit_byte(OpCode::True),
+            TokenType::False => self.emit_byte(Op::False),
+            TokenType::Nil => self.emit_byte(Op::Nil),
+            TokenType::True => self.emit_byte(Op::True),
             _ => panic!("Unreachable code: unknown literal {}", self.parser.previous.typ),
         }
     }
@@ -96,15 +102,15 @@ impl Compiler {
     fn number(&mut self) {
         let number = Value::Number(self.parser.previous.lexeme.parse().unwrap());
         let index = self.chunk.add_constant(number);
-        self.emit_byte(OpCode::Constant(index));
+        self.emit_byte(Op::Constant(index));
     }
 
     fn unary(&mut self) {
         let op_type = self.parser.previous.typ;
         self.parse_precedence(Precedence::Unary);
         match op_type {
-            TokenType::Bang => self.emit_byte(OpCode::Not),
-            TokenType::Minus => self.emit_byte(OpCode::Negate),
+            TokenType::Bang => self.emit_byte(Op::Not),
+            TokenType::Minus => self.emit_byte(Op::Negate),
             _ => panic!("Unreachable code: unknown unary operation {op_type}"),
         }
     }
@@ -128,8 +134,13 @@ impl Compiler {
         }
     }
 
-    fn emit_byte(&mut self, byte: OpCode) {
+    fn emit_byte(&mut self, byte: Op) {
         self.chunk.write(byte, self.parser.previous.line);
+    }
+
+    fn emit_bytes(&mut self, first: Op, second: Op) {
+        self.emit_byte(first);
+        self.emit_byte(second);
     }
 }
 
@@ -294,8 +305,8 @@ impl GetRule for TokenType {
             },
             Self::BangEqual => ParseRule {
                 prefix: None,
-                infix: None,
-                precedence: Precedence::None,
+                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                precedence: Precedence::Equality,
             },
             Self::Equal => ParseRule {
                 prefix: None,
@@ -304,28 +315,28 @@ impl GetRule for TokenType {
             },
             Self::EqualEqual => ParseRule {
                 prefix: None,
-                infix: None,
-                precedence: Precedence::None,
+                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                precedence: Precedence::Equality,
             },
             Self::Greater => ParseRule {
                 prefix: None,
-                infix: None,
-                precedence: Precedence::None,
+                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                precedence: Precedence::Comparison,
             },
             Self::GreaterEqual => ParseRule {
                 prefix: None,
-                infix: None,
-                precedence: Precedence::None,
+                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                precedence: Precedence::Comparison,
             },
             Self::Less => ParseRule {
                 prefix: None,
-                infix: None,
-                precedence: Precedence::None,
+                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                precedence: Precedence::Comparison,
             },
             Self::LessEqual => ParseRule {
                 prefix: None,
-                infix: None,
-                precedence: Precedence::None,
+                infix: Some(Box::new(|compiler: &mut Compiler| compiler.binary())),
+                precedence: Precedence::Comparison,
             },
             Self::Identifier => ParseRule {
                 prefix: None,

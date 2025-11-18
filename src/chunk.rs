@@ -4,7 +4,7 @@ use crate::value::*;
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    code: Vec<OpCode>,
+    code: Vec<Op>,
     lines: Vec<usize>,
     constants: Vec<Value>,
 }
@@ -18,7 +18,7 @@ impl Chunk {
         }
     }
 
-    pub fn write(&mut self, byte: OpCode, line: usize) {
+    pub fn write(&mut self, byte: Op, line: usize) {
         self.code.push(byte);
         if line >= self.lines.len() {
             self.lines.push(1);
@@ -41,7 +41,7 @@ impl Chunk {
         println!("==\\ {name} ==")
     }
 
-    pub fn read_op(&self, index: usize) -> &OpCode {
+    pub fn read_op(&self, index: usize) -> &Op {
         self.code
             .get(index)
             .expect("Operation read error - instruction index is out-of-bounds")
@@ -53,7 +53,7 @@ impl Chunk {
             .expect("Constant read error - index for constant is out-of-bounds")
     }
 
-    pub fn disassemble_instruction(&self, offset: usize, instruction: &OpCode) {
+    pub fn disassemble_instruction(&self, offset: usize, instruction: &Op) {
         print!("{:04} ", offset);
         let current_line = self.get_line(offset);
         if offset > 0 && current_line == self.get_line(offset - 1) {
@@ -63,7 +63,7 @@ impl Chunk {
         }
 
         match instruction {
-            OpCode::Constant(index) => {
+            Op::Constant(index) => {
                 let value = self.constants[*index];
                 println!("{instruction} '{value}'");
             }
@@ -83,11 +83,14 @@ impl Chunk {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum OpCode {
+pub enum Op {
     Constant(usize),
     Nil,
     True,
     False,
+    Equal,
+    Greater,
+    Less,
     Add,
     Subtract,
     Multiply,
@@ -97,7 +100,7 @@ pub enum OpCode {
     Return,
 }
 
-impl fmt::Display for OpCode {
+impl fmt::Display for Op {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Constant(index) => {
@@ -106,6 +109,9 @@ impl fmt::Display for OpCode {
             Self::Nil => write!(f, "NIL"),
             Self::True => write!(f, "TRUE"),
             Self::False => write!(f, "FALSE"),
+            Self::Equal => write!(f, "EQUAL"),
+            Self::Greater => write!(f, "GREATER"),
+            Self::Less => write!(f, "LESS"),
             Self::Add => write!(f, "ADD"),
             Self::Subtract => write!(f, "SUBTRACT"),
             Self::Multiply => write!(f, "MULTIPLY"),

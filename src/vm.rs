@@ -80,52 +80,68 @@ impl Vm {
             self.ip += 1;
 
             match op {
-                OpCode::Constant(index) => {
-                    let constant = chunk.read_constant(index);
-                    self.stack.push(*constant);
+                Op::Constant(index) => {
+                    let constant = chunk.read_constant(index).to_owned();
+                    self.push(constant);
                 }
-                OpCode::Nil => self.stack.push(Value::Nil),
-                OpCode::True => self.stack.push(Value::Bool(true)),
-                OpCode::False => self.stack.push(Value::Bool(false)),
-                OpCode::Add => {
+                Op::Nil => self.push(Value::Nil),
+                Op::True => self.push(Value::Bool(true)),
+                Op::False => self.push(Value::Bool(false)),
+                Op::Equal => {
+                    let (second, first) = (self.pop(), self.pop());
+                    self.push(Value::Bool(first.is_equal(&second)));
+                }
+                Op::Greater => {
+                    let greater = |left, right| Value::Bool(left > right);
+                    if let Err(e) = self.binary_op(greater) {
+                        return self.runtime_error(&e, &chunk);
+                    }
+                }
+                Op::Less => {
+                    let less = |left, right| Value::Bool(left < right);
+                    if let Err(e) = self.binary_op(less) {
+                        return self.runtime_error(&e, &chunk);
+                    }
+                }
+                Op::Add => {
                     let add = |left, right| Value::Number(left + right);
                     if let Err(e) = self.binary_op(add) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
-                OpCode::Subtract => {
+                Op::Subtract => {
                     let sub = |left, right| Value::Number(left - right);
                     if let Err(e) = self.binary_op(sub) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
-                OpCode::Multiply => {
+                Op::Multiply => {
                     let mult = |left, right| Value::Number(left * right);
                     if let Err(e) = self.binary_op(mult) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
-                OpCode::Divide => {
+                Op::Divide => {
                     let div = |left, right| Value::Number(left / right);
                     if let Err(e) = self.binary_op(div) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
-                OpCode::Not => {
-                    let value = self.stack_pop();
-                    self.stack.push(Value::Bool(self.is_falsey(&value)));
+                Op::Not => {
+                    let value = self.pop();
+                    self.push(Value::Bool(self.is_falsey(&value)));
                 }
-                OpCode::Negate => {
+                Op::Negate => {
                     if !self.peek(0).is_number() {
                         return self.runtime_error("Cannot negate a non-number.", &chunk);
                     }
 
-                    if let Value::Number(n) = self.stack_pop() {
-                        self.stack.push(Value::Number(-n));
+                    if let Value::Number(n) = self.pop() {
+                        self.push(Value::Number(-n));
                     }
                 }
-                OpCode::Return => {
-                    let value = self.stack_pop();
+                Op::Return => {
+                    let value = self.pop();
                     println!("{}", value);
                     return Interpret::Ok;
                 }
@@ -141,14 +157,14 @@ impl Vm {
             return Err(String::from("Cannot perform operation on two non-numbers."));
         }
 
-        if let (Value::Number(right), Value::Number(left)) = (self.stack_pop(), self.stack_pop()) {
-            self.stack.push(op(left, right));
+        if let (Value::Number(right), Value::Number(left)) = (self.pop(), self.pop()) {
+            self.push(op(left, right));
         }
 
         Ok(())
     }
 
-    fn stack_pop(&mut self) -> Value {
+    fn pop(&mut self) -> Value {
         self.stack
             .pop()
             .expect("Attempting to pop from stack when stack is empty")
@@ -159,6 +175,10 @@ impl Vm {
         self.stack
             .get(top - distance)
             .expect("Failure to peek stack top")
+    }
+
+    fn push(&mut self, value: Value) {
+        self.stack.push(value);
     }
 
     fn is_falsey(&self, value: &Value) -> bool {
