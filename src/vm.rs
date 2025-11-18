@@ -111,6 +111,10 @@ impl Vm {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
+                OpCode::Not => {
+                    let value = self.stack_pop();
+                    self.stack.push(Value::Bool(self.is_falsey(&value)));
+                }
                 OpCode::Negate => {
                     if !self.peek(0).is_number() {
                         return self.runtime_error("Cannot negate a non-number.", &chunk);
@@ -155,6 +159,13 @@ impl Vm {
         self.stack
             .get(top - distance)
             .expect("Failure to peek stack top")
+    }
+
+    fn is_falsey(&self, value: &Value) -> bool {
+        match value {
+            Value::Nil | Value::Bool(false)  => true,
+            _ => false,
+        }
     }
 
     fn stack_trace(&self) {

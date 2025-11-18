@@ -92,6 +92,7 @@ pub enum OpCode {
     Subtract,
     Multiply,
     Divide,
+    Not,
     Negate,
     Return,
 }
@@ -109,6 +110,7 @@ impl fmt::Display for OpCode {
             Self::Subtract => write!(f, "SUBTRACT"),
             Self::Multiply => write!(f, "MULTIPLY"),
             Self::Divide => write!(f, "DIVIDE"),
+            Self::Not => write!(f, "NOT"),
             Self::Negate => write!(f, "NEGATE"),
             Self::Return => write!(f, "RETURN"),
         }

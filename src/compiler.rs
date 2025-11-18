@@ -103,6 +103,7 @@ impl Compiler {
         let op_type = self.parser.previous.typ;
         self.parse_precedence(Precedence::Unary);
         match op_type {
+            TokenType::Bang => self.emit_byte(OpCode::Not),
             TokenType::Minus => self.emit_byte(OpCode::Negate),
             _ => panic!("Unreachable code: unknown unary operation {op_type}"),
         }
@@ -287,7 +288,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::Factor,
             },
             Self::Bang => ParseRule {
-                prefix: None,
+                prefix: Some(Box::new(|compiler: &mut Compiler| compiler.unary())),
                 infix: None,
                 precedence: Precedence::None,
             },
