@@ -1,4 +1,4 @@
-use std::{env, mem};
+use std::{env, mem, rc::Rc};
 
 use crate::{chunk::*, scanner::*, token::*, value::*};
 
@@ -6,19 +6,21 @@ use crate::{chunk::*, scanner::*, token::*, value::*};
 pub struct Compiler {
     scanner: Scanner,
     parser: Parser,
-    chunk: Chunk,
+    pub chunk: Chunk,
+    pub objects: Rc<Obj>,
 }
 
 impl Compiler {
-    pub fn new(source: String) -> Self {
+    pub fn new(source: String, objects: Rc<Obj>) -> Self {
         Self {
             scanner: Scanner::new(source),
             parser: Parser::new(),
             chunk: Chunk::new(),
+            objects: objects,
         }
     }
 
-    pub fn compile(mut self) -> Result<Chunk, ()> {
+    pub fn compile(mut self) -> Result<Compiler, ()> {
         self.parser.reset();
 
         self.advance();
@@ -34,7 +36,7 @@ impl Compiler {
             self.chunk.disassemble("code");
         }
 
-        Ok(self.chunk)
+        Ok(self)
     }
 
     fn advance(&mut self) {
@@ -86,7 +88,10 @@ impl Compiler {
             TokenType::False => self.emit_byte(Op::False),
             TokenType::Nil => self.emit_byte(Op::Nil),
             TokenType::True => self.emit_byte(Op::True),
-            _ => panic!("Unreachable code: unknown literal {}", self.parser.previous.typ),
+            _ => panic!(
+                "Unreachable code: unknown literal {}",
+                self.parser.previous.typ
+            ),
         }
     }
 
@@ -100,9 +105,16 @@ impl Compiler {
     }
 
     fn number(&mut self) {
-        let number = Value::Number(self.parser.previous.lexeme.parse().unwrap());
-        let index = self.chunk.add_constant(number);
-        self.emit_byte(Op::Constant(index));
+        let lexeme = &self.parser.previous.lexeme;
+        let number = Value::Number(lexeme.parse().unwrap());
+        self.emit_constant(number);
+    }
+
+    fn string(&mut self) {
+        let lexeme = &self.parser.previous.lexeme;
+        let string = Rc::new(Obj::Str(Rc::clone(&self.objects), lexeme.clone()));
+        self.objects = Rc::clone(&string);
+        self.emit_constant(Value::Obj(string));
     }
 
     fn unary(&mut self) {
@@ -143,13 +155,19 @@ impl Compiler {
         self.emit_byte(second);
     }
 
+    fn emit_constant(&mut self, value: Value) {
+        let index = self.chunk.add_constant(value);
+        self.emit_byte(Op::Constant(index));
+    }
+
     fn get_method(typ: Method) -> CompilerMethod {
         match typ {
-            Method::Grouping => Box::new(|compiler: &mut Self| compiler.grouping()),
-            Method::Unary => Box::new(|compiler: &mut Self| compiler.unary()),
-            Method::Binary => Box::new(|compiler: &mut Self| compiler.binary()),
-            Method::Number => Box::new(|compiler: &mut Self| compiler.number()),
-            Method::Literal => Box::new(|compiler: &mut Self| compiler.literal()),
+            Method::Grouping => Box::new(|compiler| compiler.grouping()),
+            Method::Unary => Box::new(|compiler| compiler.unary()),
+            Method::Binary => Box::new(|compiler| compiler.binary()),
+            Method::Number => Box::new(|compiler| compiler.number()),
+            Method::Str => Box::new(|compiler| compiler.string()),
+            Method::Literal => Box::new(|compiler| compiler.literal()),
         }
     }
 }
@@ -162,6 +180,7 @@ enum Method {
     Unary,
     Binary,
     Number,
+    Str,
     Literal,
 }
 
@@ -365,7 +384,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::Str => ParseRule {
-                prefix: None,
+                prefix: Some(Compiler::get_method(Method::Str)),
                 infix: None,
                 precedence: Precedence::None,
             },

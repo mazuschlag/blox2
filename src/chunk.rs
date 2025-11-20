@@ -64,7 +64,7 @@ impl Chunk {
 
         match instruction {
             Op::Constant(index) => {
-                let value = self.constants[*index];
+                let value = &self.constants[*index];
                 println!("{instruction} '{value}'");
             }
             _ => println!("{instruction}"),

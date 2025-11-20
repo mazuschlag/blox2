@@ -1,6 +1,8 @@
 use std::{
+    borrow::Borrow,
     env, fs,
     io::{self, BufRead, Write},
+    rc::Rc,
 };
 
 use crate::{chunk::*, compiler::*, value::*};
@@ -8,6 +10,7 @@ use crate::{chunk::*, compiler::*, value::*};
 pub struct Vm {
     ip: usize,
     stack: Vec<Value>,
+    objects: Rc<Obj>,
 }
 
 impl Vm {
@@ -15,6 +18,7 @@ impl Vm {
         Self {
             ip: 0,
             stack: Vec::new(),
+            objects: Rc::new(Obj::Unit),
         }
     }
 
@@ -60,9 +64,12 @@ impl Vm {
     }
 
     fn interpret(&mut self, source: String) -> Interpret {
-        let compiler = Compiler::new(source);
+        let compiler = Compiler::new(source, Rc::clone(&self.objects));
         match compiler.compile() {
-            Ok(chunk) => self.run(chunk),
+            Ok(compiled) => {
+                self.objects = compiled.objects;
+                self.run(compiled.chunk)
+            }
             Err(()) => return Interpret::CompileError,
         }
     }
@@ -80,16 +87,13 @@ impl Vm {
             self.ip += 1;
 
             match op {
-                Op::Constant(index) => {
-                    let constant = chunk.read_constant(index).to_owned();
-                    self.push(constant);
-                }
+                Op::Constant(index) => self.constant(&chunk, index),
                 Op::Nil => self.push(Value::Nil),
                 Op::True => self.push(Value::Bool(true)),
                 Op::False => self.push(Value::Bool(false)),
                 Op::Equal => {
                     let (second, first) = (self.pop(), self.pop());
-                    self.push(Value::Bool(first.is_equal(&second)));
+                    self.push(Value::Bool(first == second));
                 }
                 Op::Greater => {
                     let greater = |left, right| Value::Bool(left > right);
@@ -104,26 +108,22 @@ impl Vm {
                     }
                 }
                 Op::Add => {
-                    let add = |left, right| Value::Number(left + right);
-                    if let Err(e) = self.binary_op(add) {
+                    if let Err(e) = self.add() {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
                 Op::Subtract => {
-                    let sub = |left, right| Value::Number(left - right);
-                    if let Err(e) = self.binary_op(sub) {
+                    if let Err(e) = self.binary_op(|left, right| Value::Number(left - right)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
                 Op::Multiply => {
-                    let mult = |left, right| Value::Number(left * right);
-                    if let Err(e) = self.binary_op(mult) {
+                    if let Err(e) = self.binary_op(|left, right| Value::Number(left * right)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
                 Op::Divide => {
-                    let div = |left, right| Value::Number(left / right);
-                    if let Err(e) = self.binary_op(div) {
+                    if let Err(e) = self.binary_op(|left, right| Value::Number(left / right)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
@@ -149,12 +149,44 @@ impl Vm {
         }
     }
 
+    fn constant(&mut self, chunk: &Chunk, index: usize) {
+        let constant = chunk.read_constant(index).clone();
+        self.push(constant);
+    }
+
+    fn add(&mut self) -> Result<(), String> {
+        match (self.peek(0), self.peek(1)) {
+            (Value::Obj(a), Value::Obj(b)) => self.concatenate(Rc::clone(a), Rc::clone(b)),
+            (Value::Number(_), Value::Number(_)) => {
+                self.binary_op(|left, right| Value::Number(left + right))
+            }
+            _ => Err(String::from(
+                "Operands must both be strings or numbers.",
+            )),
+        }
+    }
+
+    fn concatenate(&mut self, a: Rc<Obj>, b: Rc<Obj>) -> Result<(), String> {
+        match (a.borrow(), b.borrow()) {
+            (Obj::Str(_, a), Obj::Str(_, b)) => {
+                let string = Rc::new(Obj::Str(Rc::clone(&self.objects), format!("{a}{b}")));
+                self.objects = Rc::clone(&string);
+                let value = Value::Obj(Rc::clone(&string));
+                self.push(value);
+                Ok(())
+            }
+            _ => Err(String::from(
+                "Operands must both be strings.",
+            )),
+        }
+    }
+
     fn binary_op<F>(&mut self, mut op: F) -> Result<(), String>
     where
         F: FnMut(f64, f64) -> Value,
     {
         if !self.peek(0).is_number() || !self.peek(1).is_number() {
-            return Err(String::from("Cannot perform operation on two non-numbers."));
+            return Err(String::from("Operands must both be numbers."));
         }
 
         if let (Value::Number(right), Value::Number(left)) = (self.pop(), self.pop()) {
@@ -174,7 +206,7 @@ impl Vm {
         let top = self.stack_top() - 1;
         self.stack
             .get(top - distance)
-            .expect("Failure to peek stack top")
+            .expect("Stack peek index is out-of-bounds")
     }
 
     fn push(&mut self, value: Value) {
@@ -183,7 +215,7 @@ impl Vm {
 
     fn is_falsey(&self, value: &Value) -> bool {
         match value {
-            Value::Nil | Value::Bool(false)  => true,
+            Value::Nil | Value::Bool(false) => true,
             _ => false,
         }
     }
