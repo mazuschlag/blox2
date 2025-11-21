@@ -114,6 +114,19 @@ impl Compiler {
         self.parse_precedence(Precedence::Assignment);
     }
 
+    fn var_declaration(&mut self) {
+        let global = self.parse_variable("Expect variable name.");
+
+        if self.check(TokenType::Equal) {
+            self.expression();
+        } else {
+            self.emit_byte(Op::Nil);
+        }
+
+        self.consume(TokenType::SemiColon, "Expect ';' after variable declaration");
+        self.define_variable(global);
+    }
+
     fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after expression.");
@@ -148,7 +161,12 @@ impl Compiler {
     }
 
     fn declaration(&mut self) {
-        self.statement();
+        if self.check(TokenType::Var) {
+            self.var_declaration();
+        } else {
+            self.statement();
+        }
+        
         if self.parser.panic_mode {
             self.synchronize();
         }
@@ -165,14 +183,23 @@ impl Compiler {
     fn number(&mut self) {
         let lexeme = &self.parser.previous.lexeme;
         let number = Value::Number(lexeme.parse().unwrap());
-        self.emit_constant(number);
+        self.make_constant(number);
     }
 
     fn string(&mut self) {
         let lexeme = &self.parser.previous.lexeme;
         let string = Rc::new(Obj::Str(Rc::clone(&self.objects), lexeme.clone()));
         self.objects = Rc::clone(&string);
-        self.emit_constant(Value::Obj(string));
+        self.make_constant(Value::Obj(string));
+    }
+    
+    fn named_variable(&mut self, name: String) {
+        let arg = self.identifier_constant(name);
+        self.emit_byte(Op::GetGlobal(arg));
+    }
+
+    fn variable(&mut self) {
+        self.named_variable(self.parser.previous.lexeme.clone())
     }
 
     fn unary(&mut self) {
@@ -204,6 +231,20 @@ impl Compiler {
         }
     }
 
+    fn identifier_constant(&mut self, name: String) -> usize {
+        self.chunk.add_constant(Value::Identifier(name))
+    }
+
+    fn parse_variable(&mut self, error_message: &str) -> usize {
+        self.consume(TokenType::Identifier, error_message);
+        let name = self.parser.previous.lexeme.clone();
+        self.identifier_constant(name)
+    }
+
+    fn define_variable(&mut self, global: usize) {
+        self.emit_byte(Op::DefineGlobal(global));
+    }
+
     fn emit_byte(&mut self, byte: Op) {
         self.chunk.write(byte, self.parser.previous.line);
     }
@@ -213,7 +254,7 @@ impl Compiler {
         self.emit_byte(second);
     }
 
-    fn emit_constant(&mut self, value: Value) {
+    fn make_constant(&mut self, value: Value) {
         let index = self.chunk.add_constant(value);
         self.emit_byte(Op::Constant(index));
     }
@@ -226,6 +267,7 @@ impl Compiler {
             Method::Number => Box::new(|compiler| compiler.number()),
             Method::Str => Box::new(|compiler| compiler.string()),
             Method::Literal => Box::new(|compiler| compiler.literal()),
+            Method::Variable => Box::new(|compiler| compiler.variable()),
         }
     }
 }
@@ -240,6 +282,7 @@ enum Method {
     Number,
     Str,
     Literal,
+    Variable,
 }
 
 #[derive(Debug, Clone)]
@@ -441,7 +484,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::Comparison,
             },
             Self::Identifier => ParseRule {
-                prefix: None,
+                prefix: Some(Compiler::get_method(Method::Variable)),
                 infix: None,
                 precedence: Precedence::None,
             },

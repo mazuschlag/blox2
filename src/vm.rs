@@ -1,5 +1,6 @@
 use std::{
     borrow::Borrow,
+    collections::HashMap,
     env, fs,
     io::{self, BufRead, Write},
     rc::Rc,
@@ -12,6 +13,7 @@ pub struct Vm {
     ip: usize,
     stack: Vec<Value>,
     objects: Rc<Obj>,
+    globals: HashMap<String, Value>,
 }
 
 impl Vm {
@@ -20,6 +22,7 @@ impl Vm {
             ip: 0,
             stack: Vec::new(),
             objects: Rc::new(Obj::Unit),
+            globals: HashMap::new(),
         }
     }
 
@@ -93,6 +96,20 @@ impl Vm {
                 Op::True => self.push(Value::Bool(true)),
                 Op::False => self.push(Value::Bool(false)),
                 Op::Pop => _ = self.pop(),
+                Op::DefineGlobal(index) => {
+                    let identifier = chunk.read_constant(index);
+                    let value = self.pop();
+                    self.globals.insert(identifier.name(), value);
+                }
+                Op::GetGlobal(index) => {
+                    let identifier = chunk.read_constant(index).name().clone();
+                    if let Some(value) = self.globals.get(&identifier) {
+                        self.push(value.clone());
+                    } else {
+                        let message = format!("Undefined variable {identifier}");
+                        return self.runtime_error(&message, &chunk);
+                    }
+                }
                 Op::Equal => {
                     let (second, first) = (self.pop(), self.pop());
                     self.push(Value::Bool(first == second));

@@ -44,6 +44,7 @@ pub enum Value {
     Bool(bool),
     Number(f64),
     Obj(Rc<Obj>),
+    Identifier(String),
 }
 
 impl fmt::Display for Value {
@@ -53,6 +54,7 @@ impl fmt::Display for Value {
             Self::Bool(b) => write!(f, "{b}"),
             Self::Number(n) => write!(f, "{n}"),
             Self::Obj(o) => write!(f, "{o}"),
+            Self::Identifier(i) => write!(f, "{i}"),
         }
     }
 }
@@ -84,5 +86,13 @@ impl Value {
             Self::Nil | Self::Bool(false) => true,
             _ => false,
         }
+    }
+
+    pub fn name(&self) -> String {
+         if let Value::Identifier(name) = self {
+            return name.clone();
+        }
+
+        panic!("Value does not have a name");
     }
 }
