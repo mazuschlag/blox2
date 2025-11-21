@@ -97,6 +97,7 @@ pub enum Op {
     Divide,
     Not,
     Negate,
+    Print,
     Return,
 }
 
@@ -118,6 +119,7 @@ impl fmt::Display for Op {
             Self::Divide => write!(f, "DIVIDE"),
             Self::Not => write!(f, "NOT"),
             Self::Negate => write!(f, "NEGATE"),
+            Self::Print => write!(f, "PRINT"),
             Self::Return => write!(f, "RETURN"),
         }
     }

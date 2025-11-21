@@ -7,6 +7,7 @@ use std::{
 
 use crate::{chunk::*, compiler::*, value::*};
 
+#[derive(Debug, Clone)]
 pub struct Vm {
     ip: usize,
     stack: Vec<Value>,
@@ -96,14 +97,12 @@ impl Vm {
                     self.push(Value::Bool(first == second));
                 }
                 Op::Greater => {
-                    let greater = |left, right| Value::Bool(left > right);
-                    if let Err(e) = self.binary_op(greater) {
+                    if let Err(e) = self.binary_op(|left, right| Value::Bool(left > right)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
                 Op::Less => {
-                    let less = |left, right| Value::Bool(left < right);
-                    if let Err(e) = self.binary_op(less) {
+                    if let Err(e) = self.binary_op(|left, right| Value::Bool(left < right)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
@@ -129,7 +128,7 @@ impl Vm {
                 }
                 Op::Not => {
                     let value = self.pop();
-                    self.push(Value::Bool(self.is_falsey(&value)));
+                    self.push(Value::Bool(value.is_falsey()));
                 }
                 Op::Negate => {
                     if !self.peek(0).is_number() {
@@ -140,11 +139,8 @@ impl Vm {
                         self.push(Value::Number(-n));
                     }
                 }
-                Op::Return => {
-                    let value = self.pop();
-                    println!("{}", value);
-                    return Interpret::Ok;
-                }
+                Op::Print => println!("{}", self.pop()),
+                Op::Return => return Interpret::Ok,
             }
         }
     }
@@ -156,7 +152,7 @@ impl Vm {
 
     fn add(&mut self) -> Result<(), String> {
         match (self.peek(0), self.peek(1)) {
-            (Value::Obj(a), Value::Obj(b)) => self.concatenate(Rc::clone(a), Rc::clone(b)),
+            (Value::Obj(b), Value::Obj(a)) => self.concatenate(Rc::clone(a), Rc::clone(b)),
             (Value::Number(_), Value::Number(_)) => {
                 self.binary_op(|left, right| Value::Number(left + right))
             }
@@ -211,13 +207,6 @@ impl Vm {
 
     fn push(&mut self, value: Value) {
         self.stack.push(value);
-    }
-
-    fn is_falsey(&self, value: &Value) -> bool {
-        match value {
-            Value::Nil | Value::Bool(false) => true,
-            _ => false,
-        }
     }
 
     fn stack_trace(&self) {

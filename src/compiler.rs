@@ -24,8 +24,9 @@ impl Compiler {
         self.parser.reset();
 
         self.advance();
-        self.expression();
-        self.consume(TokenType::Eof, "Expect end of expression.");
+        while !self.check(TokenType::Eof) {
+            self.declaration();
+        }
         self.end();
 
         if self.parser.had_error {
@@ -58,6 +59,15 @@ impl Compiler {
         }
 
         self.parser.error(Some(message));
+    }
+
+    fn check(&mut self, typ: TokenType) -> bool {
+        if !self.parser.check(typ) {
+            return false;
+        }
+
+        self.advance();
+        true
     }
 
     fn end(&mut self) {
@@ -102,6 +112,22 @@ impl Compiler {
 
     fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn print_statement(&mut self) {
+        self.expression();
+        self.consume(TokenType::SemiColon, "Expect ';' after value.");
+        self.emit_byte(Op::Print);
+    }
+
+    fn declaration(&mut self) {
+        self.statement();
+    }
+
+    fn statement(&mut self) {
+        if self.check(TokenType::Print) {
+            self.print_statement();
+        }
     }
 
     fn number(&mut self) {
@@ -205,6 +231,10 @@ impl Parser {
     fn reset(&mut self) {
         self.had_error = false;
         self.panic_mode = false;
+    }
+
+    fn check(&self, typ: TokenType) -> bool {
+        self.current.typ == typ
     }
 
     fn error(&mut self, message: Option<&str>) {
