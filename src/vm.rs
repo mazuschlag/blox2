@@ -88,10 +88,11 @@ impl Vm {
             self.ip += 1;
 
             match op {
-                Op::Constant(index) => self.constant(&chunk, index),
+                Op::Constant(index) => self.push(chunk.read_constant(index).clone()),
                 Op::Nil => self.push(Value::Nil),
                 Op::True => self.push(Value::Bool(true)),
                 Op::False => self.push(Value::Bool(false)),
+                Op::Pop => _ = self.pop(),
                 Op::Equal => {
                     let (second, first) = (self.pop(), self.pop());
                     self.push(Value::Bool(first == second));
@@ -145,20 +146,13 @@ impl Vm {
         }
     }
 
-    fn constant(&mut self, chunk: &Chunk, index: usize) {
-        let constant = chunk.read_constant(index).clone();
-        self.push(constant);
-    }
-
     fn add(&mut self) -> Result<(), String> {
         match (self.peek(0), self.peek(1)) {
             (Value::Obj(b), Value::Obj(a)) => self.concatenate(Rc::clone(a), Rc::clone(b)),
             (Value::Number(_), Value::Number(_)) => {
                 self.binary_op(|left, right| Value::Number(left + right))
             }
-            _ => Err(String::from(
-                "Operands must both be strings or numbers.",
-            )),
+            _ => Err(String::from("Operands must both be strings or numbers.")),
         }
     }
 
@@ -171,9 +165,7 @@ impl Vm {
                 self.push(value);
                 Ok(())
             }
-            _ => Err(String::from(
-                "Operands must both be strings.",
-            )),
+            _ => Err(String::from("Operands must both be strings.")),
         }
     }
 

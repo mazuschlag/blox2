@@ -114,19 +114,51 @@ impl Compiler {
         self.parse_precedence(Precedence::Assignment);
     }
 
+    fn expression_statement(&mut self) {
+        self.expression();
+        self.consume(TokenType::SemiColon, "Expect ';' after expression.");
+        self.emit_byte(Op::Pop);
+    }
+
     fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after value.");
         self.emit_byte(Op::Print);
     }
 
+    fn synchronize(&mut self) {
+        self.parser.panic_mode = false;
+        while self.parser.current.typ != TokenType::Eof {
+            if self.parser.previous.typ == TokenType::SemiColon {
+                return;
+            }
+
+            match self.parser.current.typ {
+                TokenType::Class |
+                TokenType::Fun |
+                TokenType::Var |
+                TokenType::For |
+                TokenType::If |
+                TokenType::While |
+                TokenType::Print |
+                TokenType::Return => return,
+                _ => self.advance(),
+            }
+        }
+    }
+
     fn declaration(&mut self) {
         self.statement();
+        if self.parser.panic_mode {
+            self.synchronize();
+        }
     }
 
     fn statement(&mut self) {
         if self.check(TokenType::Print) {
             self.print_statement();
+        } else {
+            self.expression_statement();
         }
     }
 
