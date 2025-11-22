@@ -120,14 +120,14 @@ impl fmt::Display for Op {
                     f,
                     "DEFINE_GLOBAL {number:>width$}",
                     number = index,
-                    width = 16
+                    width = 11
                 )
             }
             Self::GetGlobal(index) => {
-                write!(f, "GET_GLOBAL {number:>width$}", number = index, width = 16)
+                write!(f, "GET_GLOBAL {number:>width$}", number = index, width = 14)
             }
             Self::SetGlobal(index) => {
-                write!(f, "SET_GLOBAL {number:>width$}", number = index, width = 16)
+                write!(f, "SET_GLOBAL {number:>width$}", number = index, width = 14)
             }
             Self::Equal => write!(f, "EQUAL"),
             Self::Greater => write!(f, "GREATER"),

@@ -1,0 +1,12 @@
+var breakfast = "beignets";
+var beverage = "cafe au lait";
+breakfast = breakfast + " with " + beverage;
+
+print breakfast;
+
+var x = 1;
+var y = 2;
+print -(x + y) - 2 * 3;
+
+var b = true;
+print !b;

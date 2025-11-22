@@ -236,7 +236,7 @@ impl Compiler {
             }
         };
 
-        while precedence < self.parser.current.typ.get_rule().precedence {
+        while precedence <= self.parser.current.typ.get_rule().precedence {
             self.advance();
             match self.parser.previous.typ.get_rule().infix {
                 Method::Binary(infix_rule) => infix_rule(self),
