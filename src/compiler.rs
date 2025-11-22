@@ -48,7 +48,7 @@ impl Compiler {
                 break;
             }
 
-            self.parser.error(None);
+            self.parser.error("");
         }
     }
 
@@ -58,7 +58,7 @@ impl Compiler {
             return;
         }
 
-        self.parser.error(Some(message));
+        self.parser.error(message);
     }
 
     fn check(&mut self, typ: TokenType) -> bool {
@@ -123,7 +123,10 @@ impl Compiler {
             self.emit_byte(Op::Nil);
         }
 
-        self.consume(TokenType::SemiColon, "Expect ';' after variable declaration");
+        self.consume(
+            TokenType::SemiColon,
+            "Expect ';' after variable declaration",
+        );
         self.define_variable(global);
     }
 
@@ -147,14 +150,14 @@ impl Compiler {
             }
 
             match self.parser.current.typ {
-                TokenType::Class |
-                TokenType::Fun |
-                TokenType::Var |
-                TokenType::For |
-                TokenType::If |
-                TokenType::While |
-                TokenType::Print |
-                TokenType::Return => return,
+                TokenType::Class
+                | TokenType::Fun
+                | TokenType::Var
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => return,
                 _ => self.advance(),
             }
         }
@@ -166,7 +169,7 @@ impl Compiler {
         } else {
             self.statement();
         }
-        
+
         if self.parser.panic_mode {
             self.synchronize();
         }
@@ -192,14 +195,19 @@ impl Compiler {
         self.objects = Rc::clone(&string);
         self.make_constant(Value::Obj(string));
     }
-    
-    fn named_variable(&mut self, name: String) {
+
+    fn named_variable(&mut self, name: String, can_assign: bool) {
         let arg = self.identifier_constant(name);
-        self.emit_byte(Op::GetGlobal(arg));
+        if can_assign && self.check(TokenType::Equal) {
+            self.expression();
+            self.emit_byte(Op::SetGlobal(arg));
+        } else {
+            self.emit_byte(Op::GetGlobal(arg));
+        }
     }
 
-    fn variable(&mut self) {
-        self.named_variable(self.parser.previous.lexeme.clone())
+    fn variable(&mut self, can_assign: bool) {
+        self.named_variable(self.parser.previous.lexeme.clone(), can_assign)
     }
 
     fn unary(&mut self) {
@@ -214,10 +222,16 @@ impl Compiler {
 
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
+        let can_assign = precedence <= Precedence::Assignment;
         match self.parser.previous.typ.get_rule().prefix {
-            Some(prefix_rule) => prefix_rule(self),
-            None => {
-                self.parser.error(Some("Expected prefix expression."));
+            Method::Grouping(prefix_rule)
+            | Method::Unary(prefix_rule)
+            | Method::Number(prefix_rule)
+            | Method::Str(prefix_rule)
+            | Method::Literal(prefix_rule) => prefix_rule(self),
+            Method::Variable(prefix_rule) => prefix_rule(self, can_assign),
+            _ => {
+                self.parser.error("Expected prefix expression.");
                 return;
             }
         };
@@ -225,9 +239,13 @@ impl Compiler {
         while precedence < self.parser.current.typ.get_rule().precedence {
             self.advance();
             match self.parser.previous.typ.get_rule().infix {
-                Some(infix_rule) => infix_rule(self),
-                None => panic!("Unreachable code: expected infix rule"),
+                Method::Binary(infix_rule) => infix_rule(self),
+                _ => panic!("Unreachable code: expected infix rule"),
             };
+        }
+
+        if can_assign && self.check(TokenType::Equal) {
+            self.parser.error("Invalid assignment target.");
         }
     }
 
@@ -258,31 +276,6 @@ impl Compiler {
         let index = self.chunk.add_constant(value);
         self.emit_byte(Op::Constant(index));
     }
-
-    fn get_method(typ: Method) -> CompilerMethod {
-        match typ {
-            Method::Grouping => Box::new(|compiler| compiler.grouping()),
-            Method::Unary => Box::new(|compiler| compiler.unary()),
-            Method::Binary => Box::new(|compiler| compiler.binary()),
-            Method::Number => Box::new(|compiler| compiler.number()),
-            Method::Str => Box::new(|compiler| compiler.string()),
-            Method::Literal => Box::new(|compiler| compiler.literal()),
-            Method::Variable => Box::new(|compiler| compiler.variable()),
-        }
-    }
-}
-
-type CompilerMethod = Box<dyn Fn(&mut Compiler)>;
-
-#[derive(Debug, Clone, Copy)]
-enum Method {
-    Grouping,
-    Unary,
-    Binary,
-    Number,
-    Str,
-    Literal,
-    Variable,
 }
 
 #[derive(Debug, Clone)]
@@ -312,25 +305,17 @@ impl Parser {
         self.current.typ == typ
     }
 
-    fn error(&mut self, message: Option<&str>) {
-        match message {
-            Some(m) => eprintln!(
-                "[line {} col {} len {}] Error at '{}': {}",
-                self.previous.line,
-                self.previous.length,
-                self.previous.start,
-                self.previous.lexeme,
-                m,
-            ),
-            None => eprintln!(
-                "[line {} col {} len {}] Error at '{}': {}",
-                self.current.line,
-                self.current.length,
-                self.current.start,
-                self.current.lexeme,
-                self.current.message,
-            ),
+    fn error(&mut self, message: &str) {
+        let m = if message.is_empty() {
+            &self.current.message
+        } else {
+            message
         };
+
+        eprintln!(
+            "[line {} col {} len {}] Error at '{}': {}",
+            self.previous.line, self.previous.length, self.previous.start, self.previous.lexeme, m,
+        );
 
         self.had_error = true;
         self.panic_mode = true;
@@ -370,9 +355,20 @@ impl Precedence {
     }
 }
 
+enum Method {
+    Grouping(Box<dyn Fn(&mut Compiler)>),
+    Unary(Box<dyn Fn(&mut Compiler)>),
+    Binary(Box<dyn Fn(&mut Compiler)>),
+    Number(Box<dyn Fn(&mut Compiler)>),
+    Str(Box<dyn Fn(&mut Compiler)>),
+    Literal(Box<dyn Fn(&mut Compiler)>),
+    Variable(Box<dyn Fn(&mut Compiler, bool)>),
+    None,
+}
+
 struct ParseRule {
-    prefix: Option<CompilerMethod>,
-    infix: Option<CompilerMethod>,
+    prefix: Method,
+    infix: Method,
     precedence: Precedence,
 }
 
@@ -384,233 +380,235 @@ impl GetRule for TokenType {
     fn get_rule(&self) -> ParseRule {
         match self {
             Self::LeftParen => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Grouping)),
-                infix: None,
+                prefix: Method::Grouping(Box::new(|compiler| compiler.grouping())),
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::RightParen => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::LeftBrace => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::RightBrace => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Comma => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Dot => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Minus => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Unary)),
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::Unary(Box::new(|compiler| compiler.unary())),
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Term,
             },
             Self::Plus => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Term,
             },
             Self::Colon => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::SemiColon => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Slash => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Factor,
             },
             Self::Star => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Factor,
             },
             Self::Bang => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Unary)),
-                infix: None,
+                prefix: Method::Unary(Box::new(|compiler| compiler.unary())),
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::BangEqual => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Equality,
             },
             Self::Equal => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::EqualEqual => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Equality,
             },
             Self::Greater => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Comparison,
             },
             Self::GreaterEqual => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Comparison,
             },
             Self::Less => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Comparison,
             },
             Self::LessEqual => ParseRule {
-                prefix: None,
-                infix: Some(Compiler::get_method(Method::Binary)),
+                prefix: Method::None,
+                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Comparison,
             },
             Self::Identifier => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Variable)),
-                infix: None,
+                prefix: Method::Variable(Box::new(|compiler, can_assign| {
+                    compiler.variable(can_assign)
+                })),
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Str => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Str)),
-                infix: None,
+                prefix: Method::Str(Box::new(|compiler| compiler.string())),
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Number => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Number)),
-                infix: None,
+                prefix: Method::Number(Box::new(|compiler| compiler.number())),
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::And => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Class => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Else => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::False => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Literal)),
-                infix: None,
+                prefix: Method::Literal(Box::new(|compiler| compiler.literal())),
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::For => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Fun => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::If => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Nil => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Literal)),
-                infix: None,
+                prefix: Method::Literal(Box::new(|compiler| compiler.literal())),
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Or => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Print => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Return => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Super => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::This => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::True => ParseRule {
-                prefix: Some(Compiler::get_method(Method::Literal)),
-                infix: None,
+                prefix: Method::Literal(Box::new(|compiler| compiler.literal())),
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Var => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Val => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Switch => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Case => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Default => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::While => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Error => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Eof => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::None => ParseRule {
-                prefix: None,
-                infix: None,
+                prefix: Method::None,
+                infix: Method::None,
                 precedence: Precedence::None,
             },
         }

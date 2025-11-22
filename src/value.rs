@@ -89,7 +89,7 @@ impl Value {
     }
 
     pub fn name(&self) -> String {
-         if let Value::Identifier(name) = self {
+        if let Value::Identifier(name) = self {
             return name.clone();
         }
 

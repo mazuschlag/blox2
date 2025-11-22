@@ -110,17 +110,26 @@ impl Vm {
                         return self.runtime_error(&message, &chunk);
                     }
                 }
+                Op::SetGlobal(index) => {
+                    let identifier = chunk.read_constant(index).name().clone();
+                    if self.globals.contains_key(&identifier) {
+                        self.globals.insert(identifier, self.peek(0).clone());
+                    } else {
+                        let message = format!("Undefined variable {identifier}");
+                        return self.runtime_error(&message, &chunk);
+                    }
+                }
                 Op::Equal => {
                     let (second, first) = (self.pop(), self.pop());
                     self.push(Value::Bool(first == second));
                 }
                 Op::Greater => {
-                    if let Err(e) = self.binary_op(|left, right| Value::Bool(left > right)) {
+                    if let Err(e) = self.binary_op(|a, b| Value::Bool(a > b)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
                 Op::Less => {
-                    if let Err(e) = self.binary_op(|left, right| Value::Bool(left < right)) {
+                    if let Err(e) = self.binary_op(|a, b| Value::Bool(a < b)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
@@ -130,17 +139,17 @@ impl Vm {
                     }
                 }
                 Op::Subtract => {
-                    if let Err(e) = self.binary_op(|left, right| Value::Number(left - right)) {
+                    if let Err(e) = self.binary_op(|a, b| Value::Number(a - b)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
                 Op::Multiply => {
-                    if let Err(e) = self.binary_op(|left, right| Value::Number(left * right)) {
+                    if let Err(e) = self.binary_op(|a, b| Value::Number(a * b)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
                 Op::Divide => {
-                    if let Err(e) = self.binary_op(|left, right| Value::Number(left / right)) {
+                    if let Err(e) = self.binary_op(|a, b| Value::Number(a / b)) {
                         return self.runtime_error(&e, &chunk);
                     }
                 }
@@ -186,10 +195,7 @@ impl Vm {
         }
     }
 
-    fn binary_op<F>(&mut self, mut op: F) -> Result<(), String>
-    where
-        F: FnMut(f64, f64) -> Value,
-    {
+    fn binary_op(&mut self, op: impl Fn(f64, f64) -> Value) -> Result<(), String> {
         if !self.peek(0).is_number() || !self.peek(1).is_number() {
             return Err(String::from("Operands must both be numbers."));
         }
