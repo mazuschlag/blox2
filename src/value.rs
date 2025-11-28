@@ -26,7 +26,7 @@ impl Value {
     pub fn as_obj(&self) -> usize {
         match self {
             Self::Obj(index) => *index,
-            _ => panic!("Value is not of type 'Obj'.")
+            _ => panic!("Value is not of type 'Obj'."),
         }
     }
 }
@@ -65,8 +65,7 @@ pub enum Obj {
 impl Obj {
     pub fn lexeme(&self) -> &String {
         match self {
-            Self::Str(s)
-            | Self::Ident(s) => s,
+            Self::Str(s) | Self::Ident(s) => s,
         }
     }
 }
@@ -82,8 +81,7 @@ impl fmt::Display for Obj {
 impl PartialEq for Obj {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Str(s), Self::Str(o)) 
-            | (Self::Ident(s), Self::Ident(o)) => s == o,
+            (Self::Str(s), Self::Str(o)) | (Self::Ident(s), Self::Ident(o)) => s == o,
             (_, _) => false,
         }
     }

@@ -47,7 +47,7 @@ impl<T: Clone> Arena<T> {
 
         match self.current {
             Heap::A => self.a = clean(&mut self.a, &mut self.b),
-            Heap::B => self.b = clean(&mut self.b, &mut self.a)
+            Heap::B => self.b = clean(&mut self.b, &mut self.a),
         }
 
         self.current = self.current.next();
@@ -68,4 +68,3 @@ impl Heap {
         }
     }
 }
-

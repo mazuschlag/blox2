@@ -1,5 +1,7 @@
 use std::{
-    collections::HashMap, env, fs, io::{self, BufRead, Write}
+    collections::HashMap,
+    env, fs,
+    io::{self, BufRead, Write},
 };
 
 use crate::{arena::Arena, chunk::*, compiler::*, value::*};
@@ -170,7 +172,7 @@ impl Vm {
                         Value::Obj(index) => println!("{}", self.objects.get(index)),
                         _ => println!("{value}"),
                     }
-                },
+                }
                 Op::Return => return Interpret::Ok,
             }
         }
@@ -178,19 +180,15 @@ impl Vm {
 
     fn add(&mut self) -> Result<(), String> {
         match (self.peek(0), self.peek(1)) {
-            (Value::Obj(b_index), Value::Obj(a_index)) => {
-                let a = self.objects.get(*a_index);
-                let b = self.objects.get(*b_index);
-                match (a, b) {
-                    (Obj::Str(a_str), Obj::Str(b_str)) => {
-                        let string = Obj::Str(format!("{}{}", a_str, b_str));
-                        self.objects.push(string);
-                        let value = Value::Obj(self.objects.len() - 1);
-                        self.push(value);
-                        Ok(())
-                    }
-                    _ => Err(String::from("Operands must both be strings.")),
+            (Value::Obj(b), Value::Obj(a)) => match (self.objects.get(*a), self.objects.get(*b)) {
+                (Obj::Str(a_str), Obj::Str(b_str)) => {
+                    let string = Obj::Str(format!("{}{}", a_str, b_str));
+                    self.objects.push(string);
+                    let value = Value::Obj(self.objects.len() - 1);
+                    self.push(value);
+                    Ok(())
                 }
+                _ => Err(String::from("Operands must both be strings.")),
             },
             (Value::Number(_), Value::Number(_)) => {
                 self.binary_op(|left, right| Value::Number(left + right))
