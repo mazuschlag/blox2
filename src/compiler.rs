@@ -1,17 +1,17 @@
-use std::{env, mem, rc::Rc};
+use std::{env, mem};
 
-use crate::{chunk::*, scanner::*, token::*, value::*};
+use crate::{arena::*, chunk::*, scanner::*, token::*, value::*};
 
-#[derive(Debug, Clone)]
-pub struct Compiler {
+#[derive(Debug)]
+pub struct Compiler<'a> {
     scanner: Scanner,
     parser: Parser,
     pub chunk: Chunk,
-    pub objects: Rc<Obj>,
+    pub objects: &'a mut Arena<Obj>,
 }
 
-impl Compiler {
-    pub fn new(source: String, objects: Rc<Obj>) -> Self {
+impl<'a> Compiler<'a> {
+    pub fn new(source: String, objects: &'a mut Arena<Obj>) -> Self {
         Self {
             scanner: Scanner::new(source),
             parser: Parser::new(),
@@ -20,7 +20,7 @@ impl Compiler {
         }
     }
 
-    pub fn compile(mut self) -> Result<Compiler, ()> {
+    pub fn compile(mut self) -> Result<Compiler<'a>, ()> {
         self.parser.reset();
 
         self.advance();
@@ -33,7 +33,7 @@ impl Compiler {
             return Err(());
         }
 
-        if env::var("DEBUG_TRACE_EXECUTION").is_ok_and(|var| var == "1") {
+        if env::var("DEBUG_PRINT_CODE").is_ok_and(|var| var == "1") {
             self.chunk.disassemble("code");
         }
 
@@ -190,10 +190,11 @@ impl Compiler {
     }
 
     fn string(&mut self) {
-        let lexeme = &self.parser.previous.lexeme;
-        let string = Rc::new(Obj::Str(Rc::clone(&self.objects), lexeme.clone()));
-        self.objects = Rc::clone(&string);
-        self.make_constant(Value::Obj(string));
+        let lexeme = self.parser.previous.lexeme.clone();
+        let string = Obj::Str(lexeme);
+        self.objects.push(string);
+
+        self.make_constant(Value::Obj(self.objects.len() - 1));
     }
 
     fn named_variable(&mut self, name: String, can_assign: bool) {
@@ -250,7 +251,9 @@ impl Compiler {
     }
 
     fn identifier_constant(&mut self, name: String) -> usize {
-        self.chunk.add_constant(Value::Identifier(name))
+        let ident = Obj::Ident(name);
+        self.objects.push(ident);
+        self.chunk.add_constant(Value::Obj(self.objects.len() - 1))
     }
 
     fn parse_variable(&mut self, error_message: &str) -> usize {

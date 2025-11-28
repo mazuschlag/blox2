@@ -1,3 +1,4 @@
+mod arena;
 mod chunk;
 mod compiler;
 mod scanner;

@@ -115,10 +115,9 @@ impl Scanner {
     }
 
     fn skip_comments(&mut self) {
-        while self.check_comment() {
-            while self.peek() != '\n' && !self.is_at_end() {
-                self.advance();
-            }
+        self.current += 2;
+        while !self.is_at_end() && self.peek() != '\n' {
+            self.advance();
         }
     }
 
@@ -200,23 +199,6 @@ impl Scanner {
         }
 
         self.advance();
-        true
-    }
-
-    fn check_comment(&mut self) -> bool {
-        if self.is_at_end() {
-            return false;
-        }
-
-        if self.peek() != '/' {
-            return false;
-        }
-
-        if self.peek_next() != '/' {
-            return false;
-        }
-
-        self.current += 2;
         true
     }
 

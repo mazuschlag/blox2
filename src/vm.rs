@@ -1,18 +1,14 @@
 use std::{
-    borrow::Borrow,
-    collections::HashMap,
-    env, fs,
-    io::{self, BufRead, Write},
-    rc::Rc,
+    collections::HashMap, env, fs, io::{self, BufRead, Write}
 };
 
-use crate::{chunk::*, compiler::*, value::*};
+use crate::{arena::Arena, chunk::*, compiler::*, value::*};
 
 #[derive(Debug, Clone)]
 pub struct Vm {
     ip: usize,
     stack: Vec<Value>,
-    objects: Rc<Obj>,
+    objects: Arena<Obj>,
     globals: HashMap<String, Value>,
 }
 
@@ -21,7 +17,7 @@ impl Vm {
         Self {
             ip: 0,
             stack: Vec::new(),
-            objects: Rc::new(Obj::Unit),
+            objects: Arena::new(),
             globals: HashMap::new(),
         }
     }
@@ -68,14 +64,13 @@ impl Vm {
     }
 
     fn interpret(&mut self, source: String) -> Interpret {
-        let compiler = Compiler::new(source, Rc::clone(&self.objects));
-        match compiler.compile() {
-            Ok(compiled) => {
-                self.objects = compiled.objects;
-                self.run(compiled.chunk)
-            }
+        let compiler = Compiler::new(source, &mut self.objects);
+        let chunk = match compiler.compile() {
+            Ok(compiled) => compiled.chunk,
             Err(()) => return Interpret::CompileError,
-        }
+        };
+
+        self.run(chunk)
     }
 
     fn run(&mut self, chunk: Chunk) -> Interpret {
@@ -91,33 +86,36 @@ impl Vm {
             self.ip += 1;
 
             match op {
-                Op::Constant(index) => self.push(chunk.read_constant(index).clone()),
+                Op::Constant(index) => self.push(chunk.read_constant(index).to_owned()),
                 Op::Nil => self.push(Value::Nil),
                 Op::True => self.push(Value::Bool(true)),
                 Op::False => self.push(Value::Bool(false)),
                 Op::Pop => _ = self.pop(),
                 Op::DefineGlobal(index) => {
-                    let identifier = chunk.read_constant(index);
                     let value = self.pop();
-                    self.globals.insert(identifier.name(), value);
+                    let identifier = self.objects.get(chunk.read_constant(index).as_obj());
+                    self.globals.insert(identifier.lexeme().clone(), value);
                 }
                 Op::GetGlobal(index) => {
-                    let identifier = chunk.read_constant(index).name().clone();
-                    if let Some(value) = self.globals.get(&identifier) {
-                        self.push(value.clone());
-                    } else {
-                        let message = format!("Undefined variable {identifier}");
-                        return self.runtime_error(&message, &chunk);
+                    let identifier = self.objects.get(chunk.read_constant(index).as_obj());
+                    let lexeme = identifier.lexeme();
+                    match self.globals.get(lexeme) {
+                        Some(value) => self.push(value.to_owned()),
+                        None => {
+                            let message = format!("Undefined variable '{lexeme}'");
+                            return self.runtime_error(&message, &chunk);
+                        }
                     }
                 }
                 Op::SetGlobal(index) => {
-                    let identifier = chunk.read_constant(index).name().clone();
-                    if self.globals.contains_key(&identifier) {
-                        self.globals.insert(identifier, self.peek(0).clone());
-                    } else {
-                        let message = format!("Undefined variable {identifier}");
+                    let identifier = self.objects.get(chunk.read_constant(index).as_obj());
+                    let lexeme = identifier.lexeme();
+                    if !self.globals.contains_key(lexeme) {
+                        let message = format!("Undefined variable '{lexeme}'");
                         return self.runtime_error(&message, &chunk);
                     }
+
+                    self.globals.insert(lexeme.clone(), self.peek(0).to_owned());
                 }
                 Op::Equal => {
                     let (second, first) = (self.pop(), self.pop());
@@ -166,7 +164,13 @@ impl Vm {
                         self.push(Value::Number(-n));
                     }
                 }
-                Op::Print => println!("{}", self.pop()),
+                Op::Print => {
+                    let value = self.pop();
+                    match value {
+                        Value::Obj(index) => println!("{}", self.objects.get(index)),
+                        _ => println!("{value}"),
+                    }
+                },
                 Op::Return => return Interpret::Ok,
             }
         }
@@ -174,24 +178,24 @@ impl Vm {
 
     fn add(&mut self) -> Result<(), String> {
         match (self.peek(0), self.peek(1)) {
-            (Value::Obj(b), Value::Obj(a)) => self.concatenate(Rc::clone(a), Rc::clone(b)),
+            (Value::Obj(b_index), Value::Obj(a_index)) => {
+                let a = self.objects.get(*a_index);
+                let b = self.objects.get(*b_index);
+                match (a, b) {
+                    (Obj::Str(a_str), Obj::Str(b_str)) => {
+                        let string = Obj::Str(format!("{}{}", a_str, b_str));
+                        self.objects.push(string);
+                        let value = Value::Obj(self.objects.len() - 1);
+                        self.push(value);
+                        Ok(())
+                    }
+                    _ => Err(String::from("Operands must both be strings.")),
+                }
+            },
             (Value::Number(_), Value::Number(_)) => {
                 self.binary_op(|left, right| Value::Number(left + right))
             }
             _ => Err(String::from("Operands must both be strings or numbers.")),
-        }
-    }
-
-    fn concatenate(&mut self, a: Rc<Obj>, b: Rc<Obj>) -> Result<(), String> {
-        match (a.borrow(), b.borrow()) {
-            (Obj::Str(_, a), Obj::Str(_, b)) => {
-                let string = Rc::new(Obj::Str(Rc::clone(&self.objects), format!("{a}{b}")));
-                self.objects = Rc::clone(&string);
-                let value = Value::Obj(Rc::clone(&string));
-                self.push(value);
-                Ok(())
-            }
-            _ => Err(String::from("Operands must both be strings.")),
         }
     }
 
