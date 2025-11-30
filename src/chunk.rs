@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::arena::*;
 use crate::value::*;
 
 #[derive(Debug, Clone)]
@@ -32,10 +33,18 @@ impl Chunk {
         self.constants.len() - 1
     }
 
-    pub fn disassemble(&self, name: &str) {
+    pub fn disassemble(&self, name: &str, objects: &Arena<Obj>) {
         println!("== {name} ==");
+        for (constant_index, constant) in self.constants.iter().enumerate() {
+            match constant {
+                Value::Obj(index) => print!("{constant_index}:[ {} ] ", objects.get(*index)),
+                _ => print!("{constant_index}:[ {constant} ] "),
+            }
+        }
+
+        println!();
         for (instruction_number, byte) in self.code.iter().enumerate() {
-            self.disassemble_instruction(instruction_number, byte);
+            self.disassemble_instruction(instruction_number, byte, objects);
         }
 
         println!("==\\ {name} ==")
@@ -53,7 +62,7 @@ impl Chunk {
             .expect("Constant read error - index for constant is out-of-bounds")
     }
 
-    pub fn disassemble_instruction(&self, offset: usize, instruction: &Op) {
+    pub fn disassemble_instruction(&self, offset: usize, instruction: &Op, objects: &Arena<Obj>) {
         print!("{:04} ", offset);
         let current_line = self.get_line(offset);
         if offset > 0 && current_line == self.get_line(offset - 1) {
@@ -65,7 +74,10 @@ impl Chunk {
         match instruction {
             Op::Constant(index) => {
                 let value = &self.constants[*index];
-                println!("{instruction} '{value}'");
+                match value {
+                    Value::Obj(index) => println!("{instruction} '{}'", objects.get(*index)),
+                    _ => println!("{instruction} '{value}'"),
+                }
             }
             _ => println!("{instruction}"),
         };
@@ -92,6 +104,8 @@ pub enum Op {
     DefineGlobal(usize),
     GetGlobal(usize),
     SetGlobal(usize),
+    GetLocal(usize),
+    SetLocal(usize),
     Equal,
     Greater,
     Less,
@@ -128,6 +142,12 @@ impl fmt::Display for Op {
             }
             Self::SetGlobal(index) => {
                 write!(f, "SET_GLOBAL {number:>width$}", number = index, width = 14)
+            }
+            Self::GetLocal(index) => {
+                write!(f, "GET_LOCAL {number:>width$}", number = index, width = 15)
+            }
+            Self::SetLocal(index) => {
+                write!(f, "SET_LOCAL {number:>width$}", number = index, width = 15)
             }
             Self::Equal => write!(f, "EQUAL"),
             Self::Greater => write!(f, "GREATER"),

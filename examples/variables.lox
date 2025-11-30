@@ -1,12 +1,19 @@
-var breakfast = "beignets";
 var beverage = "cafe au lait";
-breakfast = breakfast + " with " + beverage;
+{
+    var breakfast = "beignets";
+    breakfast = breakfast + " with " + beverage;
 
-print breakfast;
+    print breakfast;
+}
 
-var x = 1;
-var y = 2;
-print -(x + y) - 2 * 3;
+{
+    var x = 1;
+    var y;
+    {
+        y = 2;
+        print -(x + y) - 2 * 3; // Should be -9
+    }
+}
 
 var b = true;
 print !b;

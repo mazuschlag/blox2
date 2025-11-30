@@ -81,8 +81,9 @@ impl Vm {
             let op = chunk.read_op(ip).to_owned();
 
             if env::var("DEBUG_TRACE_EXECUTION").is_ok_and(|var| var == "1") {
-                chunk.disassemble_instruction(ip, &op);
                 self.stack_trace();
+                chunk.disassemble_instruction(ip, &op, &self.objects);
+                println!()
             }
 
             self.ip += 1;
@@ -96,11 +97,11 @@ impl Vm {
                 Op::DefineGlobal(index) => {
                     let value = self.pop();
                     let identifier = self.objects.get(chunk.read_constant(index).as_obj());
-                    self.globals.insert(identifier.lexeme().clone(), value);
+                    self.globals.insert(identifier.name().clone(), value);
                 }
                 Op::GetGlobal(index) => {
                     let identifier = self.objects.get(chunk.read_constant(index).as_obj());
-                    let lexeme = identifier.lexeme();
+                    let lexeme = identifier.name();
                     match self.globals.get(lexeme) {
                         Some(value) => self.push(value.to_owned()),
                         None => {
@@ -111,7 +112,7 @@ impl Vm {
                 }
                 Op::SetGlobal(index) => {
                     let identifier = self.objects.get(chunk.read_constant(index).as_obj());
-                    let lexeme = identifier.lexeme();
+                    let lexeme = identifier.name();
                     if !self.globals.contains_key(lexeme) {
                         let message = format!("Undefined variable '{lexeme}'");
                         return self.runtime_error(&message, &chunk);
@@ -119,6 +120,8 @@ impl Vm {
 
                     self.globals.insert(lexeme.clone(), self.peek(0).to_owned());
                 }
+                Op::GetLocal(index) => self.push(self.local_at(index).clone()),
+                Op::SetLocal(index) => *self.local_at_mut(index) = self.peek(0).clone(),
                 Op::Equal => {
                     let (second, first) = (self.pop(), self.pop());
                     self.push(Value::Bool(first == second));
@@ -179,8 +182,8 @@ impl Vm {
     }
 
     fn add(&mut self) -> Result<(), String> {
-        match (self.peek(0), self.peek(1)) {
-            (Value::Obj(b), Value::Obj(a)) => match (self.objects.get(*a), self.objects.get(*b)) {
+        match (self.pop(), self.pop()) {
+            (Value::Obj(b), Value::Obj(a)) => match (self.objects.get(a), self.objects.get(b)) {
                 (Obj::Str(a_str), Obj::Str(b_str)) => {
                     let string = Obj::Str(format!("{}{}", a_str, b_str));
                     self.objects.push(string);
@@ -222,14 +225,30 @@ impl Vm {
             .expect("Stack peek index is out-of-bounds")
     }
 
+    fn local_at(&self, index: usize) -> &Value {
+        self.stack.get(index).expect("Local index is out-of-bounds")
+    }
+
+    fn local_at_mut(&mut self, index: usize) -> &mut Value {
+        self.stack
+            .get_mut(index)
+            .expect("Local index is out-of-bounds")
+    }
+
     fn push(&mut self, value: Value) {
         self.stack.push(value);
     }
 
     fn stack_trace(&self) {
-        print!("           ");
-        for index in 0..self.stack_top() {
-            print!("[ {} ]", self.stack[index]);
+        if self.stack.is_empty() {
+            print!("[ ]");
+        }
+
+        for (stack_index, value) in self.stack.iter().enumerate() {
+            match value {
+                Value::Obj(index) => print!("{stack_index}:[ {} ] ", self.objects.get(*index)),
+                _ => print!("{stack_index}:[ {value} ] "),
+            }
         }
 
         println!();

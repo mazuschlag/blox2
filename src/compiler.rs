@@ -2,10 +2,14 @@ use std::{env, mem};
 
 use crate::{arena::*, chunk::*, scanner::*, token::*, value::*};
 
+const UNINITIALIZED: isize = -1;
+
 #[derive(Debug)]
 pub struct Compiler<'a> {
     scanner: Scanner,
     parser: Parser,
+    locals: Vec<Local>,
+    scope_depth: usize,
     pub chunk: Chunk,
     pub objects: &'a mut Arena<Obj>,
 }
@@ -15,6 +19,8 @@ impl<'a> Compiler<'a> {
         Self {
             scanner: Scanner::new(source),
             parser: Parser::new(),
+            locals: Vec::new(),
+            scope_depth: 0,
             chunk: Chunk::new(),
             objects: objects,
         }
@@ -34,7 +40,7 @@ impl<'a> Compiler<'a> {
         }
 
         if env::var("DEBUG_PRINT_CODE").is_ok_and(|var| var == "1") {
-            self.chunk.disassemble("code");
+            self.chunk.disassemble("code", self.objects);
         }
 
         Ok(self)
@@ -72,6 +78,32 @@ impl<'a> Compiler<'a> {
 
     fn end(&mut self) {
         self.emit_byte(Op::Return);
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.scope_depth -= 1;
+        let mut locals = Vec::new();
+        for local in &self.locals {
+            if local.depth <= self.scope_depth as isize {
+                locals.push(local.clone());
+            } else {
+                self.chunk.write(Op::Pop, self.parser.previous.line)
+            }
+        }
+
+        self.locals = self.clear_scope();
+    }
+
+    fn clear_scope(&self) -> Vec<Local> {
+        self.locals
+            .iter()
+            .take_while(|local| local.depth < self.scope_depth as isize)
+            .map(|local| local.clone())
+            .collect()
     }
 
     fn binary(&mut self) {
@@ -112,6 +144,14 @@ impl<'a> Compiler<'a> {
 
     fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn block(&mut self) {
+        while !self.parser.check(TokenType::RightBrace) && !self.parser.check(TokenType::Eof) {
+            self.declaration();
+        }
+
+        self.consume(TokenType::RightBrace, "Expect '}' after block.");
     }
 
     fn var_declaration(&mut self) {
@@ -178,6 +218,10 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.check(TokenType::Print) {
             self.print_statement();
+        } else if self.check(TokenType::LeftBrace) {
+            self.begin_scope();
+            self.block();
+            self.end_scope();
         } else {
             self.expression_statement();
         }
@@ -198,12 +242,20 @@ impl<'a> Compiler<'a> {
     }
 
     fn named_variable(&mut self, name: String, can_assign: bool) {
-        let arg = self.identifier_constant(name);
+        let arg = self.resolve_local(&name);
+        let (get_op, set_op) = match arg {
+            Some(a) => (Op::GetLocal(a), Op::SetLocal(a)),
+            None => {
+                let arg = self.identifier_constant(name);
+                (Op::GetGlobal(arg), Op::SetGlobal(arg))
+            }
+        };
+
         if can_assign && self.check(TokenType::Equal) {
             self.expression();
-            self.emit_byte(Op::SetGlobal(arg));
+            self.emit_byte(set_op);
         } else {
-            self.emit_byte(Op::GetGlobal(arg));
+            self.emit_byte(get_op);
         }
     }
 
@@ -256,13 +308,68 @@ impl<'a> Compiler<'a> {
         self.chunk.add_constant(Value::Obj(self.objects.len() - 1))
     }
 
+    fn resolve_local(&mut self, name: &String) -> Option<usize> {
+        for (index, local) in self.locals.iter().enumerate().rev() {
+            if &local.name == name {
+                if local.depth == UNINITIALIZED {
+                    self.parser
+                        .error("Can't read local variable in its own initializer.")
+                }
+                return Some(index);
+            }
+        }
+
+        None
+    }
+
+    fn add_local(&mut self, name: String) {
+        let local = Local::new(name, UNINITIALIZED);
+        self.locals.push(local);
+    }
+
+    fn declare_variable(&mut self) {
+        if self.is_global_scope() {
+            return;
+        }
+
+        let name = self.parser.previous.lexeme.clone();
+        for local in self.locals.iter().rev() {
+            if local.depth != UNINITIALIZED && local.depth < self.scope_depth as isize {
+                break;
+            }
+
+            if local.name == name {
+                let message = format!("Variable with name {name} already exists in this scope.");
+                self.parser.error(&message);
+            }
+        }
+
+        self.add_local(name);
+    }
+
     fn parse_variable(&mut self, error_message: &str) -> usize {
         self.consume(TokenType::Identifier, error_message);
+        self.declare_variable();
+        if !self.is_global_scope() {
+            return 0;
+        }
+
         let name = self.parser.previous.lexeme.clone();
         self.identifier_constant(name)
     }
 
+    fn mark_initialized(&mut self) {
+        let index = self.locals.len() - 1;
+        let local = &mut self.locals[index];
+        local.depth = self.scope_depth as isize;
+    }
+
     fn define_variable(&mut self, global: usize) {
+        if !self.is_global_scope() {
+            self.mark_initialized();
+            return;
+        }
+
         self.emit_byte(Op::DefineGlobal(global));
     }
 
@@ -278,6 +385,10 @@ impl<'a> Compiler<'a> {
     fn make_constant(&mut self, value: Value) {
         let index = self.chunk.add_constant(value);
         self.emit_byte(Op::Constant(index));
+    }
+
+    fn is_global_scope(&self) -> bool {
+        self.scope_depth == 0
     }
 }
 
@@ -317,11 +428,23 @@ impl Parser {
 
         eprintln!(
             "[line {} col {} len {}] Error at '{}': {}",
-            self.previous.line, self.previous.length, self.previous.start, self.previous.lexeme, m,
+            self.previous.line, self.previous.start, self.previous.length, self.previous.lexeme, m,
         );
 
         self.had_error = true;
         self.panic_mode = true;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Local {
+    name: String,
+    depth: isize,
+}
+
+impl Local {
+    fn new(name: String, depth: isize) -> Local {
+        Local { name, depth }
     }
 }
 

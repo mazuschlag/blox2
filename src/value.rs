@@ -63,7 +63,7 @@ pub enum Obj {
 }
 
 impl Obj {
-    pub fn lexeme(&self) -> &String {
+    pub fn name(&self) -> &String {
         match self {
             Self::Str(s) | Self::Ident(s) => s,
         }
