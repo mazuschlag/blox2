@@ -2,7 +2,8 @@ use std::{env, mem};
 
 use crate::{arena::*, chunk::*, scanner::*, token::*, value::*};
 
-const UNINITIALIZED: isize = -1;
+const UNINITIALIZED_SCOPE: isize = -1;
+const GLOBAL_SCOPE: usize = 0;
 
 #[derive(Debug)]
 pub struct Compiler<'a> {
@@ -176,6 +177,16 @@ impl<'a> Compiler<'a> {
         self.emit_byte(Op::Pop);
     }
 
+    fn if_statement(&mut self) {
+        self.consume(TokenType::LeftParen, "Expect '(' after 'if'.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
+        
+        let then_jump = self.emit_jump(Op::JumpIfFalse(0));
+        self.statement();
+        self.patch_jump(then_jump);
+    }
+
     fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after value.");
@@ -222,6 +233,8 @@ impl<'a> Compiler<'a> {
             self.begin_scope();
             self.block();
             self.end_scope();
+        } else if self.check(TokenType::If) {
+            self.if_statement();
         } else {
             self.expression_statement();
         }
@@ -311,7 +324,7 @@ impl<'a> Compiler<'a> {
     fn resolve_local(&mut self, name: &String) -> Option<usize> {
         for (index, local) in self.locals.iter().enumerate().rev() {
             if &local.name == name {
-                if local.depth == UNINITIALIZED {
+                if local.depth == UNINITIALIZED_SCOPE {
                     self.parser
                         .error("Can't read local variable in its own initializer.")
                 }
@@ -323,7 +336,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn add_local(&mut self, name: String) {
-        let local = Local::new(name, UNINITIALIZED);
+        let local = Local::new(name, UNINITIALIZED_SCOPE);
         self.locals.push(local);
     }
 
@@ -334,7 +347,7 @@ impl<'a> Compiler<'a> {
 
         let name = self.parser.previous.lexeme.clone();
         for local in self.locals.iter().rev() {
-            if local.depth != UNINITIALIZED && local.depth < self.scope_depth as isize {
+            if local.depth != UNINITIALIZED_SCOPE && local.depth < self.scope_depth as isize {
                 break;
             }
 
@@ -373,6 +386,21 @@ impl<'a> Compiler<'a> {
         self.emit_byte(Op::DefineGlobal(global));
     }
 
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.chunk.code_len();
+        let op = match self.chunk.get_op(offset) {
+            Op::JumpIfFalse(_) => Op::JumpIfFalse(jump),
+            op => panic!("Op {op} at {offset} is not a valid jump op."),
+        };
+
+        *self.chunk.get_op_mut(offset) = op;
+    }
+
+    fn emit_jump(&mut self, byte: Op) -> usize {
+        self.chunk.write(byte, self.parser.previous.line);
+        self.chunk.code_len() - 1
+    }
+
     fn emit_byte(&mut self, byte: Op) {
         self.chunk.write(byte, self.parser.previous.line);
     }
@@ -388,7 +416,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn is_global_scope(&self) -> bool {
-        self.scope_depth == 0
+        self.scope_depth == GLOBAL_SCOPE
     }
 }
 

@@ -35,6 +35,7 @@ impl Chunk {
 
     pub fn disassemble(&self, name: &str, objects: &Arena<Obj>) {
         println!("== {name} ==");
+        print!("Constants: ");
         for (constant_index, constant) in self.constants.iter().enumerate() {
             match constant {
                 Value::Obj(index) => print!("{constant_index}:[ {} ] ", objects.get(*index)),
@@ -92,6 +93,18 @@ impl Chunk {
         }
         current_index
     }
+
+    pub fn code_len(&self) -> usize {
+        self.code.len()
+    }
+
+    pub fn get_op(&self, index: usize) -> &Op {
+        self.code.get(index).expect("Index for op is out of bounds")
+    }
+
+    pub fn get_op_mut(&mut self, index: usize) -> &mut Op {
+        self.code.get_mut(index).expect("Index for op is out of bounds")
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -116,6 +129,7 @@ pub enum Op {
     Not,
     Negate,
     Print,
+    JumpIfFalse(usize),
     Return,
 }
 
@@ -159,6 +173,9 @@ impl fmt::Display for Op {
             Self::Not => write!(f, "NOT"),
             Self::Negate => write!(f, "NEGATE"),
             Self::Print => write!(f, "PRINT"),
+            Self::JumpIfFalse(index) => {
+                write!(f, "JUMP_IF_FALSE {number:>width$}", number = index, width = 11)
+            }
             Self::Return => write!(f, "RETURN"),
         }
     }

@@ -176,18 +176,25 @@ impl Vm {
                         _ => println!("{value}"),
                     }
                 }
+                Op::JumpIfFalse(index) => {
+                    if self.peek(0).is_falsey() {
+                        self.ip = index;
+                    }
+                }
                 Op::Return => return Interpret::Ok,
             }
         }
     }
 
     fn add(&mut self) -> Result<(), String> {
-        match (self.pop(), self.pop()) {
-            (Value::Obj(b), Value::Obj(a)) => match (self.objects.get(a), self.objects.get(b)) {
+        match (self.peek(0), self.peek(1)) {
+            (Value::Obj(b), Value::Obj(a)) => match (self.objects.get(*a), self.objects.get(*b)) {
                 (Obj::Str(a_str), Obj::Str(b_str)) => {
                     let string = Obj::Str(format!("{}{}", a_str, b_str));
                     self.objects.push(string);
                     let value = Value::Obj(self.objects.len() - 1);
+                    self.pop();
+                    self.pop();
                     self.push(value);
                     Ok(())
                 }
@@ -219,7 +226,7 @@ impl Vm {
     }
 
     fn peek(&self, distance: usize) -> &Value {
-        let top = self.stack_top() - 1;
+        let top = self.stack_top();
         self.stack
             .get(top - distance)
             .expect("Stack peek index is out-of-bounds")
@@ -255,7 +262,7 @@ impl Vm {
     }
 
     fn stack_top(&self) -> usize {
-        self.stack.len()
+        self.stack.len() - 1
     }
 
     fn reset_stack(&mut self) {
