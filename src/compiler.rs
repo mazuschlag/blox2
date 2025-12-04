@@ -183,8 +183,17 @@ impl<'a> Compiler<'a> {
         self.consume(TokenType::RightParen, "Expect ')' after condition.");
         
         let then_jump = self.emit_jump(Op::JumpIfFalse(0));
+        self.emit_byte(Op::Pop);
         self.statement();
+        
+        let else_jump = self.emit_jump(Op::Jump(0));
         self.patch_jump(then_jump);
+        self.emit_byte(Op::Pop);
+        if self.check(TokenType::Else) {
+            self.statement();
+        }
+
+        self.patch_jump(else_jump);
     }
 
     fn print_statement(&mut self) {
@@ -390,6 +399,7 @@ impl<'a> Compiler<'a> {
         let jump = self.chunk.code_len();
         let op = match self.chunk.get_op(offset) {
             Op::JumpIfFalse(_) => Op::JumpIfFalse(jump),
+            Op::Jump(_) => Op::Jump(jump),
             op => panic!("Op {op} at {offset} is not a valid jump op."),
         };
 

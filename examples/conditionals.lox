@@ -1,10 +1,14 @@
-// Should print 3 times
+// Should log "print" 4 times
 if (1 + 1 == 2) {
     print "print";
+} else {
+    print "don't print";
 }
 
 if (nil) {
     print "don't print";
+} else {
+    print "print";
 }
 
 if (!!true) {

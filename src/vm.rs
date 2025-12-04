@@ -181,6 +181,7 @@ impl Vm {
                         self.ip = index;
                     }
                 }
+                Op::Jump(index) => self.ip = index,
                 Op::Return => return Interpret::Ok,
             }
         }
