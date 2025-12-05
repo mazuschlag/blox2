@@ -81,7 +81,8 @@ impl fmt::Display for Obj {
 impl PartialEq for Obj {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Str(s), Self::Str(o)) | (Self::Ident(s), Self::Ident(o)) => s == o,
+            (Self::Str(s), Self::Str(o)) => s == o,
+            (Self::Ident(s), Self::Ident(o)) => s == o,
             (_, _) => false,
         }
     }

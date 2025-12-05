@@ -299,12 +299,8 @@ impl<'a> Compiler<'a> {
         self.advance();
         let can_assign = precedence <= Precedence::Assignment;
         match self.parser.previous.typ.get_rule().prefix {
-            Method::Grouping(prefix_rule)
-            | Method::Unary(prefix_rule)
-            | Method::Number(prefix_rule)
-            | Method::Str(prefix_rule)
-            | Method::Literal(prefix_rule) => prefix_rule(self),
-            Method::Variable(prefix_rule) => prefix_rule(self, can_assign),
+            Method::NonAssign(prefix_rule) => prefix_rule(self),
+            Method::Assign(prefix_rule) => prefix_rule(self, can_assign),
             _ => {
                 self.parser.error("Expected prefix expression.");
                 return;
@@ -314,7 +310,7 @@ impl<'a> Compiler<'a> {
         while precedence <= self.parser.current.typ.get_rule().precedence {
             self.advance();
             match self.parser.previous.typ.get_rule().infix {
-                Method::Binary(infix_rule) => infix_rule(self),
+                Method::NonAssign(infix_rule) => infix_rule(self),
                 _ => panic!("Unreachable code: expected infix rule"),
             };
         }
@@ -393,6 +389,22 @@ impl<'a> Compiler<'a> {
         }
 
         self.emit_byte(Op::DefineGlobal(global));
+    }
+
+    fn and(&mut self) {
+        let end_jump = self.emit_jump(Op::JumpIfFalse(0));
+        self.emit_byte(Op::Pop);
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(end_jump);
+    }
+
+    fn or(&mut self) {
+        let else_jump = self.emit_jump(Op::JumpIfFalse(0));
+        let end_jump = self.emit_jump(Op::Jump(0));
+        self.patch_jump(else_jump);
+        self.emit_byte(Op::Pop);
+        self.parse_precedence(Precedence::Or);
+        self.patch_jump(end_jump);
     }
 
     fn patch_jump(&mut self, offset: usize) {
@@ -520,13 +532,8 @@ impl Precedence {
 }
 
 enum Method {
-    Grouping(Box<dyn Fn(&mut Compiler)>),
-    Unary(Box<dyn Fn(&mut Compiler)>),
-    Binary(Box<dyn Fn(&mut Compiler)>),
-    Number(Box<dyn Fn(&mut Compiler)>),
-    Str(Box<dyn Fn(&mut Compiler)>),
-    Literal(Box<dyn Fn(&mut Compiler)>),
-    Variable(Box<dyn Fn(&mut Compiler, bool)>),
+    NonAssign(Box<dyn Fn(&mut Compiler)>),
+    Assign(Box<dyn Fn(&mut Compiler, bool)>),
     None,
 }
 
@@ -544,7 +551,7 @@ impl GetRule for TokenType {
     fn get_rule(&self) -> ParseRule {
         match self {
             Self::LeftParen => ParseRule {
-                prefix: Method::Grouping(Box::new(|compiler| compiler.grouping())),
+                prefix: Method::NonAssign(Box::new(|compiler| compiler.grouping())),
                 infix: Method::None,
                 precedence: Precedence::None,
             },
@@ -574,13 +581,13 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::Minus => ParseRule {
-                prefix: Method::Unary(Box::new(|compiler| compiler.unary())),
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                prefix: Method::NonAssign(Box::new(|compiler| compiler.unary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Term,
             },
             Self::Plus => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Term,
             },
             Self::Colon => ParseRule {
@@ -595,22 +602,22 @@ impl GetRule for TokenType {
             },
             Self::Slash => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Factor,
             },
             Self::Star => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Factor,
             },
             Self::Bang => ParseRule {
-                prefix: Method::Unary(Box::new(|compiler| compiler.unary())),
+                prefix: Method::NonAssign(Box::new(|compiler| compiler.unary())),
                 infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::BangEqual => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Equality,
             },
             Self::Equal => ParseRule {
@@ -620,50 +627,50 @@ impl GetRule for TokenType {
             },
             Self::EqualEqual => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Equality,
             },
             Self::Greater => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Comparison,
             },
             Self::GreaterEqual => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Comparison,
             },
             Self::Less => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Comparison,
             },
             Self::LessEqual => ParseRule {
                 prefix: Method::None,
-                infix: Method::Binary(Box::new(|compiler| compiler.binary())),
+                infix: Method::NonAssign(Box::new(|compiler| compiler.binary())),
                 precedence: Precedence::Comparison,
             },
             Self::Identifier => ParseRule {
-                prefix: Method::Variable(Box::new(|compiler, can_assign| {
+                prefix: Method::Assign(Box::new(|compiler, can_assign| {
                     compiler.variable(can_assign)
                 })),
                 infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Str => ParseRule {
-                prefix: Method::Str(Box::new(|compiler| compiler.string())),
+                prefix: Method::NonAssign(Box::new(|compiler| compiler.string())),
                 infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Number => ParseRule {
-                prefix: Method::Number(Box::new(|compiler| compiler.number())),
+                prefix: Method::NonAssign(Box::new(|compiler| compiler.number())),
                 infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::And => ParseRule {
                 prefix: Method::None,
-                infix: Method::None,
-                precedence: Precedence::None,
+                infix: Method::NonAssign(Box::new(|compiler| compiler.and())),
+                precedence: Precedence::And,
             },
             Self::Class => ParseRule {
                 prefix: Method::None,
@@ -676,7 +683,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::False => ParseRule {
-                prefix: Method::Literal(Box::new(|compiler| compiler.literal())),
+                prefix: Method::NonAssign(Box::new(|compiler| compiler.literal())),
                 infix: Method::None,
                 precedence: Precedence::None,
             },
@@ -696,14 +703,14 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::Nil => ParseRule {
-                prefix: Method::Literal(Box::new(|compiler| compiler.literal())),
+                prefix: Method::NonAssign(Box::new(|compiler| compiler.literal())),
                 infix: Method::None,
                 precedence: Precedence::None,
             },
             Self::Or => ParseRule {
                 prefix: Method::None,
-                infix: Method::None,
-                precedence: Precedence::None,
+                infix: Method::NonAssign(Box::new(|compiler| compiler.or())),
+                precedence: Precedence::Or,
             },
             Self::Print => ParseRule {
                 prefix: Method::None,
@@ -726,7 +733,7 @@ impl GetRule for TokenType {
                 precedence: Precedence::None,
             },
             Self::True => ParseRule {
-                prefix: Method::Literal(Box::new(|compiler| compiler.literal())),
+                prefix: Method::NonAssign(Box::new(|compiler| compiler.literal())),
                 infix: Method::None,
                 precedence: Precedence::None,
             },

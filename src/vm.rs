@@ -123,8 +123,18 @@ impl Vm {
                 Op::GetLocal(index) => self.push(self.local_at(index).clone()),
                 Op::SetLocal(index) => *self.local_at_mut(index) = self.peek(0).clone(),
                 Op::Equal => {
-                    let (second, first) = (self.pop(), self.pop());
-                    self.push(Value::Bool(first == second));
+                    let result = match (self.pop(), self.pop()) {
+                        (Value::Bool(second), Value::Bool(first)) => first == second,
+                        (Value::Number(second), Value::Number(first)) => first == second,
+                        (Value::Nil, Value::Nil) => true,
+                        (Value::Obj(second_i), Value::Obj(first_i)) => {
+                            let first = self.objects.get(first_i);
+                            let second = self.objects.get(second_i);
+                            first == second
+                        }
+                        _ => false,
+                    };
+                    self.push(Value::Bool(result));
                 }
                 Op::Greater => {
                     if let Err(e) = self.binary_op(|a, b| Value::Bool(a > b)) {
