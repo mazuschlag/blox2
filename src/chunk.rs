@@ -131,6 +131,7 @@ pub enum Op {
     Print,
     JumpIfFalse(usize),
     Jump(usize),
+    Loop(usize),
     Return,
 }
 
@@ -179,6 +180,9 @@ impl fmt::Display for Op {
             }
             Self::Jump(index) => {
                 write!(f, "JUMP {number:>width$}", number = index, width = 20)
+            }
+            Self::Loop(index) => {
+                write!(f, "LOOP {number:>width$}", number = index, width = 20)
             }
             Self::Return => write!(f, "RETURN"),
         }

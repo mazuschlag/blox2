@@ -1,4 +1,4 @@
-// Should print "print" 4 times
+// Should print "print" 7 times
 if (1 + 1 == 2) {
     print "print";
 } else {
@@ -12,11 +12,17 @@ if (nil) {
 }
 
 if (!!true and false) {
-    print " don't print";
+    print "don't print";
 }
 
 if (false or "a" == "a") {
     print "print";
+}
+
+var x = 0;
+while (x < 3) {
+    print "print";
+    x = x + 1;
 }
 
 print "print";

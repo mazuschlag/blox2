@@ -31,17 +31,17 @@ impl<'a> Compiler<'a> {
         self.parser.reset();
 
         self.advance();
-        while !self.check(TokenType::Eof) {
+        while !self.match_advance(TokenType::Eof) {
             self.declaration();
         }
+
         self.end();
+        if env::var("DEBUG_PRINT_CODE").is_ok_and(|var| var == "1") {
+            self.chunk.disassemble("code", self.objects);
+        }
 
         if self.parser.had_error {
             return Err(());
-        }
-
-        if env::var("DEBUG_PRINT_CODE").is_ok_and(|var| var == "1") {
-            self.chunk.disassemble("code", self.objects);
         }
 
         Ok(self)
@@ -68,7 +68,7 @@ impl<'a> Compiler<'a> {
         self.parser.error(message);
     }
 
-    fn check(&mut self, typ: TokenType) -> bool {
+    fn match_advance(&mut self, typ: TokenType) -> bool {
         if !self.parser.check(typ) {
             return false;
         }
@@ -158,7 +158,7 @@ impl<'a> Compiler<'a> {
     fn var_declaration(&mut self) {
         let global = self.parse_variable("Expect variable name.");
 
-        if self.check(TokenType::Equal) {
+        if self.match_advance(TokenType::Equal) {
             self.expression();
         } else {
             self.emit_byte(Op::Nil);
@@ -189,7 +189,7 @@ impl<'a> Compiler<'a> {
         let else_jump = self.emit_jump(Op::Jump(0));
         self.patch_jump(then_jump);
         self.emit_byte(Op::Pop);
-        if self.check(TokenType::Else) {
+        if self.match_advance(TokenType::Else) {
             self.statement();
         }
 
@@ -200,6 +200,21 @@ impl<'a> Compiler<'a> {
         self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after value.");
         self.emit_byte(Op::Print);
+    }
+
+    fn while_statement(&mut self) {
+        let loop_start = self.chunk.code_len();
+        self.consume(TokenType::LeftParen, "Expect '(' after 'while'.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
+
+        let exit_jump = self.emit_jump(Op::JumpIfFalse(0));
+        self.emit_byte(Op::Pop);
+        self.statement();
+        self.emit_loop(loop_start);
+        
+        self.patch_jump(exit_jump);
+        self.emit_byte(Op::Pop);
     }
 
     fn synchronize(&mut self) {
@@ -224,7 +239,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn declaration(&mut self) {
-        if self.check(TokenType::Var) {
+        if self.match_advance(TokenType::Var) {
             self.var_declaration();
         } else {
             self.statement();
@@ -236,13 +251,15 @@ impl<'a> Compiler<'a> {
     }
 
     fn statement(&mut self) {
-        if self.check(TokenType::Print) {
+        if self.match_advance(TokenType::Print) {
             self.print_statement();
-        } else if self.check(TokenType::LeftBrace) {
+        } else if self.match_advance(TokenType::While) {
+            self.while_statement();
+        } else if self.match_advance(TokenType::LeftBrace) {
             self.begin_scope();
             self.block();
             self.end_scope();
-        } else if self.check(TokenType::If) {
+        } else if self.match_advance(TokenType::If) {
             self.if_statement();
         } else {
             self.expression_statement();
@@ -273,7 +290,7 @@ impl<'a> Compiler<'a> {
             }
         };
 
-        if can_assign && self.check(TokenType::Equal) {
+        if can_assign && self.match_advance(TokenType::Equal) {
             self.expression();
             self.emit_byte(set_op);
         } else {
@@ -315,7 +332,7 @@ impl<'a> Compiler<'a> {
             };
         }
 
-        if can_assign && self.check(TokenType::Equal) {
+        if can_assign && self.match_advance(TokenType::Equal) {
             self.parser.error("Invalid assignment target.");
         }
     }
@@ -430,6 +447,10 @@ impl<'a> Compiler<'a> {
     fn emit_bytes(&mut self, first: Op, second: Op) {
         self.emit_byte(first);
         self.emit_byte(second);
+    }
+
+    fn emit_loop(&mut self, loop_start: usize) {
+        self.emit_byte(Op::Loop(loop_start));
     }
 
     fn make_constant(&mut self, value: Value) {
