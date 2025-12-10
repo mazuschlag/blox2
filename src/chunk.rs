@@ -103,7 +103,9 @@ impl Chunk {
     }
 
     pub fn get_op_mut(&mut self, index: usize) -> &mut Op {
-        self.code.get_mut(index).expect("Index for op is out of bounds")
+        self.code
+            .get_mut(index)
+            .expect("Index for op is out of bounds")
     }
 }
 
@@ -176,7 +178,12 @@ impl fmt::Display for Op {
             Self::Negate => write!(f, "NEGATE"),
             Self::Print => write!(f, "PRINT"),
             Self::JumpIfFalse(index) => {
-                write!(f, "JUMP_IF_FALSE {number:>width$}", number = index, width = 11)
+                write!(
+                    f,
+                    "JUMP_IF_FALSE {number:>width$}",
+                    number = index,
+                    width = 11
+                )
             }
             Self::Jump(index) => {
                 write!(f, "JUMP {number:>width$}", number = index, width = 20)

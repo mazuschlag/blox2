@@ -181,11 +181,11 @@ impl<'a> Compiler<'a> {
         self.consume(TokenType::LeftParen, "Expect '(' after 'if'.");
         self.expression();
         self.consume(TokenType::RightParen, "Expect ')' after condition.");
-        
+
         let then_jump = self.emit_jump(Op::JumpIfFalse(0));
         self.emit_byte(Op::Pop);
         self.statement();
-        
+
         let else_jump = self.emit_jump(Op::Jump(0));
         self.patch_jump(then_jump);
         self.emit_byte(Op::Pop);
@@ -212,9 +212,51 @@ impl<'a> Compiler<'a> {
         self.emit_byte(Op::Pop);
         self.statement();
         self.emit_loop(loop_start);
-        
+
         self.patch_jump(exit_jump);
         self.emit_byte(Op::Pop);
+    }
+
+    fn for_statement(&mut self) {
+        self.begin_scope();
+        self.consume(TokenType::LeftParen, "Expect '(' after 'for'.");
+        if self.match_advance(TokenType::SemiColon) {
+            // no initializer
+        } else if self.match_advance(TokenType::Var) {
+            self.var_declaration();
+        } else {
+            self.expression_statement();
+        }
+
+        let mut loop_start = self.chunk.code_len();
+        let mut exit_jump = -1;
+        if !self.match_advance(TokenType::SemiColon) {
+            self.expression();
+            self.consume(TokenType::SemiColon, "Expect ';' after loop condition.");
+            exit_jump = self.emit_jump(Op::JumpIfFalse(0)) as isize;
+            self.emit_byte(Op::Pop);
+        }
+
+        if !self.match_advance(TokenType::RightParen) {
+            let body_jump = self.emit_jump(Op::Jump(0));
+            let increment_start = self.chunk.code_len();
+            self.expression();
+            self.emit_byte(Op::Pop);
+            self.consume(TokenType::RightParen, "Expect ')' after for clauses.");
+
+            self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+
+        self.statement();
+        self.emit_loop(loop_start);
+        if exit_jump != -1 {
+            self.patch_jump(exit_jump as usize);
+            self.emit_byte(Op::Pop);
+        }
+
+        self.end_scope();
     }
 
     fn synchronize(&mut self) {
@@ -255,6 +297,8 @@ impl<'a> Compiler<'a> {
             self.print_statement();
         } else if self.match_advance(TokenType::While) {
             self.while_statement();
+        } else if self.match_advance(TokenType::For) {
+            self.for_statement();
         } else if self.match_advance(TokenType::LeftBrace) {
             self.begin_scope();
             self.block();
